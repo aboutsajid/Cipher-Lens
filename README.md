@@ -36,6 +36,7 @@ Useful commands:
 - `npm run lint`
 - `npm run build`
 - `npm run package:win`
+- `npm run package:mac`
 
 ## Project Structure
 
@@ -53,6 +54,19 @@ Useful commands:
 5. If you want the project shown on `aboutsajid.github.io`, either:
    - link to the repo Pages site from your main website, or
    - copy/adapt the content from [`docs/index.html`](docs/index.html) into your main site.
+
+## Mac Build
+
+If you want to share Cipher Lens with a friend on macOS, use one of these paths:
+
+- On a Mac machine: run `npm run package:mac`
+- For Intel-only output: run `npm run package:mac:x64`
+- For Apple Silicon output: run `npm run package:mac:arm64`
+- From GitHub: use the `Build Mac App` workflow to generate Mac artifacts automatically
+
+The new workflow builds both `x64` and `arm64` Mac packages and uploads them as workflow artifacts. When you push a tag like `v1.0.0`, it also uploads the `.dmg` and `.zip` files to that GitHub Release.
+
+Because this project is not set up with Apple code signing or notarization yet, macOS may show a security warning the first time your friend opens it. In that case, they can right-click the app and choose `Open` once.
 
 ## Release Notes
 

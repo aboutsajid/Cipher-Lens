@@ -1,0 +1,70 @@
+name: Build Mac App
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-mac:
+    name: Build macOS (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-13
+            arch: x64
+          - runner: macos-14
+            arch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build macOS package
+        run: npx electron-builder --mac dmg zip --${{ matrix.arch }} --publish never
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipher-lens-macos-${{ matrix.arch }}
+          path: |
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error
+
+  upload-release-assets:
+    name: Upload Mac assets to release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-mac
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+
+      - name: Publish assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/**/*.dmg
+            release-assets/**/*.zip
