@@ -1330,7 +1330,7 @@ export default function App() {
         </div>
         <div className="hero-copy-stack">
           <div className="cipher-logo hero-logo" aria-label="Cipher Lens">
-            <img className="cipher-logo-icon" src="/brand/cipher-mark.svg" alt="" />
+            <img className="cipher-logo-icon" src={`${import.meta.env.BASE_URL}brand/cipher-mark.svg`} alt="" />
             <span className="word">Cipher</span>
             <span className="tm">TM</span>
             <span className="tool-name">Lens</span>
