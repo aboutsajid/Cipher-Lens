@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Cipher Lens is a premium desktop app for YouTube transcript analysis, channel deep dives, export packs, and local-first creator research."
+    />
+    <meta name="theme-color" content="#07131c" />
+    <title>Cipher Lens | Desktop YouTube Intelligence</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Rajdhani:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="hero">
+        <nav class="topbar">
+          <div class="brand-lockup">
+            <svg class="brand-mark" viewBox="0 0 512 512" aria-hidden="true">
+              <defs>
+                <linearGradient id="bg" x1="92" y1="72" x2="420" y2="448" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#07131C"></stop>
+                  <stop offset="1" stop-color="#102A38"></stop>
+                </linearGradient>
+                <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(256 256) rotate(90) scale(240)">
+                  <stop stop-color="#0F3F44" stop-opacity=".7"></stop>
+                  <stop offset="1" stop-color="#0F3F44" stop-opacity="0"></stop>
+                </radialGradient>
+                <linearGradient id="stroke" x1="112" y1="128" x2="408" y2="384" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#78FFE6"></stop>
+                  <stop offset="1" stop-color="#00D8B0"></stop>
+                </linearGradient>
+              </defs>
+              <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#bg)"></rect>
+              <rect x="24" y="24" width="464" height="464" rx="112" fill="url(#glow)"></rect>
+              <rect x="42" y="42" width="428" height="428" rx="96" stroke="#5CFFE0" stroke-opacity=".45" stroke-width="8"></rect>
+              <circle cx="256" cy="256" r="158" stroke="#00F5C4" stroke-opacity=".35" stroke-width="10"></circle>
+              <path d="M337 167A128 128 0 1 0 337 345" stroke="url(#stroke)" stroke-width="42" stroke-linecap="round"></path>
+              <circle cx="358" cy="223" r="24" fill="#F4FFFC"></circle>
+              <path d="M286 336L343 309" stroke="#C3FFF3" stroke-opacity=".55" stroke-width="14" stroke-linecap="round"></path>
+            </svg>
+            <div>
+              <p class="eyebrow">Cipher</p>
+              <strong>Cipher Lens</strong>
+            </div>
+          </div>
+          <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#workflow">Workflow</a>
+            <a href="#publish">Publish</a>
+          </div>
+        </nav>
+
+        <section class="hero-grid">
+          <div class="hero-copy">
+            <p class="hero-kicker">Desktop YouTube Intelligence</p>
+            <h1>Turn raw transcripts into briefs, channel strategy, and publish-ready assets.</h1>
+            <p class="hero-text">
+              Cipher Lens is a local-first desktop app for creators, researchers, and operators who need faster
+              clarity from YouTube videos. Fetch transcripts, clean noisy captions, analyze full channels, and export
+              polished reports without depending on a cloud dashboard.
+            </p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="#publish">Publish This Project</a>
+              <a class="button button-secondary" href="https://github.com/aboutsajid" target="_blank" rel="noreferrer">GitHub Profile</a>
+            </div>
+            <div class="hero-note">
+              Windows desktop app built with Electron, React, and Vite.
+            </div>
+          </div>
+
+          <div class="hero-panel">
+            <div class="metric-card">
+              <span>Workspace Modes</span>
+              <strong>Single, Batch, Channel</strong>
+              <p>Move from one transcript to full channel comparisons without leaving the app.</p>
+            </div>
+            <div class="metric-card">
+              <span>Outputs</span>
+              <strong>Briefs, decks, content packs</strong>
+              <p>Generate summaries, exports, PDF reports, and repurposing copy from the same source material.</p>
+            </div>
+            <div class="metric-card">
+              <span>Analysis Style</span>
+              <strong>Local-first and fast</strong>
+              <p>Keep transcript work in your desktop flow with reusable history, presets, and saved reports.</p>
+            </div>
+          </div>
+        </section>
+      </header>
+
+      <main>
+        <section class="section" id="features">
+          <div class="section-heading">
+            <p class="eyebrow">Core Features</p>
+            <h2>Built for creators who need more than a simple summary.</h2>
+          </div>
+          <div class="card-grid">
+            <article class="feature-card">
+              <h3>Transcript Studio</h3>
+              <p>Analyze pasted text, imported subtitle files, or fetched YouTube captions with noise cleanup controls.</p>
+            </article>
+            <article class="feature-card">
+              <h3>Export Engine</h3>
+              <p>Package insights into briefs, meeting notes, YouTube descriptions, content calendars, and full upload packs.</p>
+            </article>
+            <article class="feature-card">
+              <h3>Channel Lab</h3>
+              <p>Run deep dives on recent channel uploads and compare two channels side by side for positioning and whitespace.</p>
+            </article>
+            <article class="feature-card">
+              <h3>Library</h3>
+              <p>Keep saved briefs, channel reports, and reusable sample presets in one desktop workspace.</p>
+            </article>
+            <article class="feature-card">
+              <h3>PDF Reporting</h3>
+              <p>Export clean, client-friendly PDF decks directly from the app for strategy sessions and deliverables.</p>
+            </article>
+            <article class="feature-card">
+              <h3>Desktop UX</h3>
+              <p>Fast keyboard behavior, context menus, file dialogs, and platform-aware Electron bridges where they matter.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section split-section" id="workflow">
+          <div class="section-heading">
+            <p class="eyebrow">Workflow</p>
+            <h2>From video URL to decision-ready output in one session.</h2>
+          </div>
+          <div class="timeline">
+            <article class="timeline-card">
+              <span>01</span>
+              <h3>Bring in the source</h3>
+              <p>Paste a transcript, import subtitles, or fetch public YouTube captions and metadata.</p>
+            </article>
+            <article class="timeline-card">
+              <span>02</span>
+              <h3>Clean the transcript</h3>
+              <p>Remove speaker labels, dedupe lines, trim fillers, and normalize noisy caption text.</p>
+            </article>
+            <article class="timeline-card">
+              <span>03</span>
+              <h3>Generate structured analysis</h3>
+              <p>Produce takeaways, chapters, keywords, clip moments, content plans, and packaging ideas.</p>
+            </article>
+            <article class="timeline-card">
+              <span>04</span>
+              <h3>Export and reuse</h3>
+              <p>Save briefs locally, export text or PDF files, and reload work later from the built-in library.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section stack-section">
+          <div class="section-heading">
+            <p class="eyebrow">Technical Snapshot</p>
+            <h2>Modern desktop stack, simple deploy story.</h2>
+          </div>
+          <div class="stack-grid">
+            <article class="stack-card">
+              <h3>Frontend</h3>
+              <p>React 19 with TypeScript and Vite for a fast local dev and production build pipeline.</p>
+            </article>
+            <article class="stack-card">
+              <h3>Desktop Shell</h3>
+              <p>Electron main/preload bridges for transcript fetching, file import, PDF export, and external links.</p>
+            </article>
+            <article class="stack-card">
+              <h3>Analysis Layer</h3>
+              <p>Local transcript heuristics power summaries, quote extraction, title scoring, and channel comparisons.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="section publish-section" id="publish">
+          <div class="section-heading">
+            <p class="eyebrow">Publish Readiness</p>
+            <h2>Everything needed for GitHub and GitHub Pages is now in place.</h2>
+          </div>
+          <div class="publish-grid">
+            <article class="publish-card">
+              <h3>Repo Ready</h3>
+              <ul>
+                <li>Improved root README</li>
+                <li>Pages-ready `docs/` site</li>
+                <li>GitHub Pages workflow in `.github/workflows/pages.yml`</li>
+                <li>Electron release fix for packaged window lifecycle</li>
+              </ul>
+            </article>
+            <article class="publish-card">
+              <h3>Next Steps</h3>
+              <ol>
+                <li>Create the GitHub repo.</li>
+                <li>Push this project to `main`.</li>
+                <li>Enable GitHub Pages with GitHub Actions.</li>
+                <li>Run `npm run package:win` and upload the installer to Releases.</li>
+              </ol>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
