@@ -19,6 +19,36 @@ const QA_CHANNELS = [
   { label: "Startup / Founder", url: "https://www.youtube.com/@ycombinator" },
 ];
 
+const QA_COMPARE_PAIRS = [
+  {
+    label: "Creator Education",
+    primary: { label: "ThinkMediaTV", url: "https://www.youtube.com/@ThinkMediaTV" },
+    competitor: { label: "VideoCreators", url: "https://www.youtube.com/@VideoCreators" },
+  },
+  {
+    label: "Productivity / Business",
+    primary: { label: "AliAbdaal", url: "https://www.youtube.com/@AliAbdaal" },
+    competitor: { label: "Thomas Frank", url: "https://www.youtube.com/@Thomasfrank" },
+  },
+  {
+    label: "Software Tutorial",
+    primary: { label: "Fireship", url: "https://www.youtube.com/@Fireship" },
+    competitor: { label: "Traversy Media", url: "https://www.youtube.com/@TraversyMedia" },
+  },
+];
+
+const DEFAULT_DEEP_DIVE_OPTIONS = {
+  summaryStyle: "executive",
+  audiencePreset: "creator",
+  outputLanguage: "en",
+  cleaner: {
+    removeNoiseTags: true,
+    removeSpeakerLabels: false,
+    dedupeLines: true,
+    trimFillers: true,
+  },
+};
+
 function decodeHtmlEntities(value) {
   return String(value ?? "")
     .replace(/&amp;/g, "&")
@@ -186,25 +216,21 @@ async function fetchChannelSample(channel) {
   }));
 }
 
+function buildDeepDiveFromSample(channelUrl, videos, sourceVideoCount = videos.length) {
+  return buildChannelDeepDive({
+    channelUrl,
+    videos,
+    sourceVideoCount,
+    ...DEFAULT_DEEP_DIVE_OPTIONS,
+  });
+}
+
 const results = [];
 
 for (const channel of QA_CHANNELS) {
   try {
     const videos = await fetchChannelSample(channel);
-    const deepDive = buildChannelDeepDive({
-      channelUrl: channel.url,
-      videos,
-      sourceVideoCount: videos.length,
-      summaryStyle: "executive",
-      audiencePreset: "creator",
-      outputLanguage: "en",
-      cleaner: {
-        removeNoiseTags: true,
-        removeSpeakerLabels: false,
-        dedupeLines: true,
-        trimFillers: true,
-      },
-    });
+    const deepDive = buildDeepDiveFromSample(channel.url, videos, videos.length);
 
     results.push({
       label: channel.label,
@@ -230,11 +256,151 @@ for (const channel of QA_CHANNELS) {
 }
 
 const passedResults = results.filter((result) => result.deepDive);
-const comparePair = passedResults.length >= 2
-  ? buildChannelCompare({
-    primary: passedResults[0].deepDive,
-    competitor: passedResults[1].deepDive,
-  })
+const resultByUrl = new Map(results.map((result) => [result.url, result]));
+
+async function ensureChannelResult(channel) {
+  const existing = resultByUrl.get(channel.url);
+  if (existing) return existing;
+
+  try {
+    const videos = await fetchChannelSample(channel);
+    const deepDive = buildDeepDiveFromSample(channel.url, videos, videos.length);
+    const nextResult = {
+      label: channel.label,
+      url: channel.url,
+      videos,
+      deepDive,
+      status: deepDive.analyzedVideos > 0 ? "passed" : "failed",
+      note: deepDive.analyzedVideos > 0 ? "" : "No analyzable videos were returned after sampling.",
+    };
+    resultByUrl.set(channel.url, nextResult);
+    return nextResult;
+  } catch (error) {
+    const failedResult = {
+      label: channel.label,
+      url: channel.url,
+      videos: [],
+      deepDive: null,
+      status: "failed",
+      note: error instanceof Error ? error.message : "Unknown QA failure",
+    };
+    resultByUrl.set(channel.url, failedResult);
+    return failedResult;
+  }
+}
+
+const comparePairs = [];
+for (const pair of QA_COMPARE_PAIRS) {
+  const primaryResult = await ensureChannelResult(pair.primary);
+  const competitorResult = await ensureChannelResult(pair.competitor);
+  if (!primaryResult.deepDive || !competitorResult.deepDive) continue;
+  comparePairs.push({
+    label: pair.label,
+    primaryResult,
+    competitorResult,
+    compare: buildChannelCompare({
+      primary: primaryResult.deepDive,
+      competitor: competitorResult.deepDive,
+    }),
+  });
+}
+
+const compareSmokeStatus = comparePairs.length === QA_COMPARE_PAIRS.length ? "passed" : comparePairs.length > 0 ? "partial" : "skipped";
+
+const noTranscriptCheckSource = passedResults.find((result) => result.videos.length >= 2) ?? null;
+const noTranscriptCheck = noTranscriptCheckSource
+  ? (() => {
+    const adjustedVideos = noTranscriptCheckSource.videos.map((video, index) => (
+      index === 0 ? { ...video, transcript: "" } : video
+    ));
+    const deepDive = buildDeepDiveFromSample(noTranscriptCheckSource.url, adjustedVideos, adjustedVideos.length);
+    const passed = deepDive.analyzedVideos > 0 && deepDive.transcriptCoverage < noTranscriptCheckSource.deepDive.transcriptCoverage;
+    return {
+      label: noTranscriptCheckSource.label,
+      passed,
+      analyzedVideos: deepDive.analyzedVideos,
+      transcriptCoverage: deepDive.transcriptCoverage,
+    };
+  })()
+  : null;
+
+const partialTranscriptCompareSource = comparePairs[0] ?? null;
+const partialTranscriptCompareCheck = partialTranscriptCompareSource
+  ? (() => {
+    const adjustedCompetitorVideos = partialTranscriptCompareSource.competitorResult.videos.map((video, index) => (
+      index === 0 ? { ...video, transcript: "" } : video
+    ));
+    const partialCompetitor = buildDeepDiveFromSample(
+      partialTranscriptCompareSource.competitorResult.url,
+      adjustedCompetitorVideos,
+      adjustedCompetitorVideos.length,
+    );
+    const compare = buildChannelCompare({
+      primary: partialTranscriptCompareSource.primaryResult.deepDive,
+      competitor: partialCompetitor,
+    });
+    const passed = compare.decisions.length > 0
+      && partialCompetitor.transcriptCoverage < partialTranscriptCompareSource.competitorResult.deepDive.transcriptCoverage;
+    return {
+      labels: `${compare.primaryLabel} vs ${compare.competitorLabel}`,
+      passed,
+      competitorTranscriptCoverage: partialCompetitor.transcriptCoverage,
+      recommendation: compare.recommendations[0] ?? "n/a",
+    };
+  })()
+  : null;
+
+const deepDiveSelectionSource = passedResults.find((result) => result.videos.length >= 2) ?? null;
+const deepDiveSelectionCheck = deepDiveSelectionSource
+  ? (() => {
+    const selectedVideos = deepDiveSelectionSource.videos.slice(0, 1);
+    const filteredDeepDive = buildDeepDiveFromSample(
+      deepDiveSelectionSource.url,
+      selectedVideos,
+      deepDiveSelectionSource.videos.length,
+    );
+    const changed = filteredDeepDive.analyzedVideos !== deepDiveSelectionSource.deepDive.analyzedVideos
+      || filteredDeepDive.averageViewCount !== deepDiveSelectionSource.deepDive.averageViewCount
+      || filteredDeepDive.overview !== deepDiveSelectionSource.deepDive.overview;
+    return {
+      label: deepDiveSelectionSource.label,
+      passed: changed,
+      baselineSample: deepDiveSelectionSource.deepDive.analyzedVideos,
+      filteredSample: filteredDeepDive.analyzedVideos,
+    };
+  })()
+  : null;
+
+const compareSelectionSource = comparePairs.find((pair) => pair.primaryResult.videos.length >= 2 && pair.competitorResult.videos.length >= 2) ?? null;
+const compareSelectionCheck = compareSelectionSource
+  ? (() => {
+    const filteredPrimary = buildDeepDiveFromSample(
+      compareSelectionSource.primaryResult.url,
+      compareSelectionSource.primaryResult.videos.slice(0, 1),
+      compareSelectionSource.primaryResult.videos.length,
+    );
+    const filteredCompetitor = buildDeepDiveFromSample(
+      compareSelectionSource.competitorResult.url,
+      compareSelectionSource.competitorResult.videos.slice(0, 1),
+      compareSelectionSource.competitorResult.videos.length,
+    );
+    const filteredCompare = buildChannelCompare({
+      primary: filteredPrimary,
+      competitor: filteredCompetitor,
+    });
+    const baselineCompare = compareSelectionSource.compare;
+    const changed = filteredCompare.overview !== baselineCompare.overview
+      || filteredCompare.metrics.primarySampleSize !== baselineCompare.metrics.primarySampleSize
+      || filteredCompare.metrics.competitorSampleSize !== baselineCompare.metrics.competitorSampleSize
+      || filteredCompare.metrics.primaryAverageViews !== baselineCompare.metrics.primaryAverageViews
+      || filteredCompare.metrics.competitorAverageViews !== baselineCompare.metrics.competitorAverageViews;
+    return {
+      labels: `${baselineCompare.primaryLabel} vs ${baselineCompare.competitorLabel}`,
+      passed: changed,
+      baselineSample: `${baselineCompare.metrics.primarySampleSize}/${baselineCompare.metrics.competitorSampleSize}`,
+      filteredSample: `${filteredCompare.metrics.primarySampleSize}/${filteredCompare.metrics.competitorSampleSize}`,
+    };
+  })()
   : null;
 
 const lines = [
@@ -245,7 +411,12 @@ const lines = [
   "## QA Summary",
   `- Channels tested: ${results.length}`,
   `- Channels passed: ${passedResults.length}`,
-  `- Compare smoke: ${comparePair ? "passed" : "skipped"}`,
+  `- Compare pairs tested: ${comparePairs.length}`,
+  `- Compare smoke: ${compareSmokeStatus}`,
+  `- Deep Dive no-transcript fallback: ${noTranscriptCheck?.passed ? "passed" : "failed"}`,
+  `- Compare partial-transcript fallback: ${partialTranscriptCompareCheck?.passed ? "passed" : "failed"}`,
+  `- Deep Dive selection impact: ${deepDiveSelectionCheck?.passed ? "passed" : "failed"}`,
+  `- Compare selection impact: ${compareSelectionCheck?.passed ? "passed" : "failed"}`,
   "",
 ];
 
@@ -269,16 +440,38 @@ for (const result of results) {
   lines.push("");
 }
 
-if (comparePair) {
+if (comparePairs.length > 0) {
   lines.push("## Compare Smoke");
-  lines.push(`${comparePair.primaryLabel} vs ${comparePair.competitorLabel}`);
   lines.push("");
-  lines.push(`- Overview: ${comparePair.overview}`);
-  lines.push(`- Winner 1: ${comparePair.decisions[0]?.category} -> ${comparePair.decisions[0]?.winner ?? "n/a"}`);
-  lines.push(`- Winner 2: ${comparePair.decisions[1]?.category} -> ${comparePair.decisions[1]?.winner ?? "n/a"}`);
-  lines.push(`- Recommendation: ${comparePair.recommendations[0] ?? "n/a"}`);
-  lines.push("");
+  for (const pair of comparePairs) {
+    lines.push(`### ${pair.compare.primaryLabel} vs ${pair.compare.competitorLabel}`);
+    lines.push("");
+    lines.push(`- Compare lane: ${pair.label}`);
+    lines.push(`- Shared themes: ${pair.compare.overlapThemes.length > 0 ? pair.compare.overlapThemes.join(", ") : "None"}`);
+    lines.push(`- Overview: ${pair.compare.overview}`);
+    lines.push(`- Winner 1: ${pair.compare.decisions[0]?.category} -> ${pair.compare.decisions[0]?.winner ?? "n/a"}`);
+    lines.push(`- Winner 2: ${pair.compare.decisions[1]?.category} -> ${pair.compare.decisions[1]?.winner ?? "n/a"}`);
+    lines.push(`- Recommendation: ${pair.compare.recommendations[0] ?? "n/a"}`);
+    lines.push("");
+  }
 }
+
+lines.push("## Edge-Case QA");
+lines.push("");
+if (noTranscriptCheck) {
+  lines.push(`- Deep Dive no-transcript fallback (${noTranscriptCheck.label}): ${noTranscriptCheck.passed ? "passed" : "failed"} | ${noTranscriptCheck.analyzedVideos} analyzable videos | ${noTranscriptCheck.transcriptCoverage}% transcript coverage`);
+}
+if (partialTranscriptCompareCheck) {
+  lines.push(`- Compare partial-transcript fallback (${partialTranscriptCompareCheck.labels}): ${partialTranscriptCompareCheck.passed ? "passed" : "failed"} | competitor transcript coverage ${partialTranscriptCompareCheck.competitorTranscriptCoverage}%`);
+  lines.push(`- Partial-transcript recommendation: ${partialTranscriptCompareCheck.recommendation}`);
+}
+if (deepDiveSelectionCheck) {
+  lines.push(`- Deep Dive selection impact (${deepDiveSelectionCheck.label}): ${deepDiveSelectionCheck.passed ? "passed" : "failed"} | ${deepDiveSelectionCheck.baselineSample} videos -> ${deepDiveSelectionCheck.filteredSample} selected`);
+}
+if (compareSelectionCheck) {
+  lines.push(`- Compare selection impact (${compareSelectionCheck.labels}): ${compareSelectionCheck.passed ? "passed" : "failed"} | baseline ${compareSelectionCheck.baselineSample} -> filtered ${compareSelectionCheck.filteredSample}`);
+}
+lines.push("");
 
 const output = `${lines.join("\n")}\n`;
 const outputUrl = relativePathFromImportMeta("../QA_CHANNEL_MATRIX.md");

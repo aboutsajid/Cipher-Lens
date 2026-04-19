@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("desktopRuntime", {
   platform,
   fetchYoutubeTranscript: (url, language) => ipcRenderer.invoke("youtube-transcript:fetch", { url, language }),
   importTranscriptFile: () => ipcRenderer.invoke("transcript:import-file"),
+  importAnalyticsFile: () => ipcRenderer.invoke("analytics:import-file"),
   saveExportFile: (payload) => ipcRenderer.invoke("export:save-file", payload),
   savePdfFile: (payload) => ipcRenderer.invoke("export:save-pdf", payload),
   fetchYoutubeChannelVideos: (url, limit) => ipcRenderer.invoke("youtube:channel-videos", { url, limit }),

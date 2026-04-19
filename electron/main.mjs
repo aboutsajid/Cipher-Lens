@@ -39,6 +39,23 @@ function writeStartupLog(message, detail = "") {
   }
 }
 
+function configureAppIdentity() {
+  try {
+    app.setName(windowTitle)
+    if (process.platform === "win32") {
+      app.setAppUserModelId(windowsAppId)
+    }
+
+    const userDataDirectoryName = app.isPackaged ? "cipher-lens" : "cipher-lens-dev"
+    const userDataPath = join(app.getPath("appData"), userDataDirectoryName)
+    app.setPath("userData", userDataPath)
+    writeStartupLog("userData configured", userDataPath)
+  } catch (error) {
+    writeStartupLog("userData configure failed", error instanceof Error ? error.message : String(error))
+  }
+}
+
+configureAppIdentity()
 writeStartupLog("main module loaded", app.isPackaged ? "packaged" : "dev")
 process.on("uncaughtException", (error) => {
   writeStartupLog("uncaughtException", error?.stack || String(error))
@@ -222,6 +239,115 @@ function extractVideoMetadataFromHtml(html) {
   }
 }
 
+function collectNodesByKey(node, key, results = []) {
+  if (!node || typeof node !== "object") {
+    return results
+  }
+
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      collectNodesByKey(item, key, results)
+    }
+    return results
+  }
+
+  for (const [entryKey, value] of Object.entries(node)) {
+    if (entryKey === key) {
+      results.push(value)
+    }
+    collectNodesByKey(value, key, results)
+  }
+
+  return results
+}
+
+function extractRunText(value) {
+  if (!value) return ""
+  if (typeof value === "string") return decodeHtmlEntities(value).trim()
+  if (typeof value.simpleText === "string") return decodeHtmlEntities(value.simpleText).trim()
+  if (Array.isArray(value.runs)) {
+    return decodeHtmlEntities(value.runs.map((entry) => String(entry?.text ?? "")).join("")).trim()
+  }
+  if (value.content && typeof value.content === "string") {
+    return decodeHtmlEntities(value.content).trim()
+  }
+  return ""
+}
+
+function extractYoutubeContext(html) {
+  const apiKey = html.match(/INNERTUBE_API_KEY":"([^"]+)"/)?.[1] ?? ""
+  const clientVersion = html.match(/INNERTUBE_CLIENT_VERSION":"([^"]+)"/)?.[1] ?? ""
+  const visitorData = html.match(/visitorData":"([^"]+)"/)?.[1] ?? ""
+  return { apiKey, clientVersion, visitorData }
+}
+
+async function fetchTopComments(videoId, html) {
+  const { apiKey, clientVersion, visitorData } = extractYoutubeContext(html)
+  const continuationToken = [...html.matchAll(/token":"([^"]+)/g)].map((match) => match[1])[0] ?? ""
+  if (!apiKey || !clientVersion || !continuationToken) {
+    return { commentCountLabel: "", topComments: [] }
+  }
+
+  const response = await fetch(`https://www.youtube.com/youtubei/v1/next?key=${apiKey}`, {
+    method: "POST",
+    headers: {
+      ...youtubeRequestHeaders,
+      "Content-Type": "application/json",
+      "Origin": "https://www.youtube.com",
+      "Referer": `https://www.youtube.com/watch?v=${videoId}`,
+      "X-Goog-Visitor-Id": visitorData,
+      "X-YouTube-Client-Name": "1",
+      "X-YouTube-Client-Version": clientVersion,
+    },
+    body: JSON.stringify({
+      context: {
+        client: {
+          hl: "en",
+          gl: "US",
+          clientName: "WEB",
+          clientVersion,
+          visitorData,
+        },
+      },
+      continuation: continuationToken,
+    }),
+  })
+
+  if (!response.ok) {
+    return { commentCountLabel: "", topComments: [] }
+  }
+
+  const data = await response.json()
+  const header = collectNodesByKey(data, "commentsHeaderRenderer")[0]
+  const commentCountLabel = extractRunText(header?.countText)
+  const entities = collectNodesByKey(data, "commentEntityPayload")
+  const seenIds = new Set()
+  const topComments = []
+
+  for (const entity of entities) {
+    const commentId = String(entity?.properties?.commentId ?? "").trim()
+    const text = extractRunText(entity?.properties?.content)
+    if (!commentId || !text || seenIds.has(commentId)) {
+      continue
+    }
+    seenIds.add(commentId)
+    topComments.push({
+      author: String(entity?.author?.displayName ?? "").trim(),
+      text,
+      likeCount: String(entity?.toolbar?.likeCountLiked ?? entity?.toolbar?.likeCountNotliked ?? "").trim(),
+      publishedLabel: String(entity?.properties?.publishedTime ?? "").trim(),
+    })
+    if (topComments.length >= 5) {
+      break
+    }
+  }
+
+  return {
+    commentCountLabel,
+    topComments,
+  }
+}
+
 function normalizeThumbnailText(value) {
   return String(value ?? "")
     .split(/\r?\n/)
@@ -343,11 +469,14 @@ async function fetchVideoMetadata(urlOrVideoId) {
   const html = await response.text()
   const metadata = extractVideoMetadataFromHtml(html)
   const thumbnailText = metadata.thumbnailUrl ? await extractThumbnailText(metadata.thumbnailUrl) : ""
+  const { commentCountLabel, topComments } = await fetchTopComments(videoId, html).catch(() => ({ commentCountLabel: "", topComments: [] }))
   return {
     title: metadata.title,
     description: metadata.description,
     thumbnailUrl: metadata.thumbnailUrl,
     thumbnailText,
+    commentCountLabel,
+    topComments,
   }
 }
 
@@ -622,10 +751,6 @@ ipcMain.handle(externalOpenChannel, async (_event, payload) => {
 })
 
 app.whenReady().then(() => {
-  app.setName(windowTitle)
-  if (process.platform === "win32") {
-    app.setAppUserModelId(windowsAppId)
-  }
   writeStartupLog("app ready")
   createWindow()
   app.on('activate', () => {

@@ -16,6 +16,14 @@ type TranscriptImportResult = {
   content: string;
 };
 
+type AnalyticsImportResult = {
+  canceled: boolean;
+  fileName: string;
+  path: string;
+  extension?: string;
+  content: string;
+};
+
 type ExportSaveResult = {
   canceled: boolean;
   path: string;
@@ -37,6 +45,13 @@ type YoutubeVideoMetadataResult = {
   description: string;
   thumbnailUrl: string;
   thumbnailText: string;
+  commentCountLabel: string;
+  topComments: Array<{
+    author: string;
+    text: string;
+    likeCount: string;
+    publishedLabel: string;
+  }>;
 };
 
 declare global {
@@ -48,6 +63,7 @@ declare global {
         language?: string,
       ) => Promise<YoutubeTranscriptFetchResult>;
       importTranscriptFile: () => Promise<TranscriptImportResult>;
+      importAnalyticsFile: () => Promise<AnalyticsImportResult>;
       saveExportFile: (payload: {
         suggestedName: string;
         extension: string;

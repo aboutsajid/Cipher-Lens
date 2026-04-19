@@ -1,10 +1,29 @@
-import { useEffect, useState, useTransition } from "react";
+import { type ReactNode, useEffect, useState, useTransition } from "react";
 import "./App.css";
+import { AppErrorBoundary } from "./app/AppErrorBoundary";
+import {
+  APP_VIEW_DESCRIPTIONS,
+  type AppView,
+  type ExperienceMode,
+} from "./app/navigation";
+import { ChannelCommandWorkspace } from "./features/channel-lab/ChannelCommandWorkspace";
+import { ComparePage } from "./features/compare/ComparePage";
+import { StudioAnalyticsPage } from "./features/analytics/StudioAnalyticsPage";
+import { ExportsPage } from "./features/exports/ExportsPage";
+import { useChannelLabState } from "./features/channel-lab/useChannelLabState";
+import { HomeDashboard } from "./features/home/HomeDashboard";
+import { LibraryPage } from "./features/library/LibraryPage";
+import { SettingsPage } from "./features/settings/SettingsPage";
+import { useLibraryCollections } from "./features/library/useLibraryCollections";
+import { ProjectsPage } from "./features/projects/ProjectsPage";
+import { useProjectStore } from "./features/projects/useProjectStore";
+import { useChannelLabSelections } from "./features/channel-lab/useChannelLabSelections";
+import { VideoIntelInsights } from "./features/video-intel/VideoIntelInsights";
+import { VideoIntelWorkspace } from "./features/video-intel/VideoIntelWorkspace";
 import {
   AUDIENCE_OPTIONS,
   CLEANER_DEFAULTS,
   COPY_FORMAT_OPTIONS,
-  EXPORT_FORMAT_OPTIONS,
   OUTPUT_LANGUAGE_OPTIONS,
   SAMPLE_TITLE,
   SAMPLE_TRANSCRIPT,
@@ -13,23 +32,33 @@ import {
   buildAnalysis,
   buildChannelCompare,
   buildChannelDeepDive,
+  buildCloneChannel,
   buildExportContent,
   buildQuestionAnswer,
   buildTimestampSearchMatches,
   convertSubtitleContent,
   cleanTranscriptInput,
-  formatDuration,
   getWordCount,
   type AnalysisBundle,
   type AudiencePreset,
+  type CloneChannelStage,
+  type CloneGoal,
+  type ClonePresentationStyle,
+  type CloneChannelBundle,
   type ChannelDeepDiveBundle,
   type ChannelCompareBundle,
+  type ChannelNicheModelBundle,
   type CleanerSettings,
   type CopyFormat,
   type ExportFormat,
   type OutputLanguage,
   type SummaryStyle,
 } from "./premium";
+import {
+  mergeStudioCsvIntoVideos,
+  type StudioImportSummary,
+  type StudioVideoMetrics,
+} from "./youtube-studio";
 
 const STORAGE_KEY = "cipher-lens/briefs";
 const CHANNEL_REPORTS_STORAGE_KEY = "cipher-lens/channel-reports";
@@ -49,11 +78,16 @@ const LANGUAGE_OPTIONS = [
 ];
 
 type WorkspaceMode = "single" | "batch" | "channel";
-type ExperienceMode = "basic" | "pro";
-type AppView = "studio" | "channel" | "library";
 type InsightTab = "summary" | "insights" | "exports" | "chat";
-type ChannelResultTab = "overview" | "strategy" | "opportunities" | "deck" | "breakdown";
-type CompareResultTab = "summary" | "winners" | "deck";
+type ViSection = "input" | InsightTab;
+type LibrarySection = "overview" | "projects" | "briefs" | "presets" | "reports";
+type ProjectsSection = "all" | "workspaces" | "briefs" | "reports" | "presets";
+type AnalyticsSection = "overview" | "main" | "compare" | "benchmark";
+type CompareSection = "overview" | "winners" | "adapt" | "niche" | "deck";
+type ChannelResultTab = "overview" | "dna" | "winning" | "titles" | "thumbnails" | "hooks" | "audience" | "monetization" | "adapt" | "action";
+type CompareResultTab = "summary" | "winners" | "adapt" | "niche" | "deck";
+type AnalyzePanelSection = "overview" | "seo" | "style" | "opportunities" | "clone" | "scorecard";
+type ModeMetric = { label: string; value: string; note: string };
 type StatusTone = "ready" | "busy" | "success" | "error";
 type StatusState = { message: string; tone: StatusTone };
 type TranscriptSource = { lineCount: number; language: string; videoId: string };
@@ -74,14 +108,24 @@ type SavedChannelReport = {
   title: string;
   createdAt: string;
   channelUrl: string;
+  myChannelUrl: string;
   compareChannelUrl: string;
+  benchmarkChannelUrl: string;
   channelSampleSize: number;
   compareSampleSize: number;
+  benchmarkSampleSize: number;
+  cloneNiche: string;
+  cloneStage: CloneChannelStage;
+  clonePresentationStyle: ClonePresentationStyle;
+  cloneGoal: CloneGoal;
   channelVideos: ChannelVideo[];
   selectedChannelVideoIds: string[];
   compareChannelVideos: ChannelVideo[];
   selectedCompareVideoIds: string[];
+  benchmarkChannelVideos: ChannelVideo[];
+  selectedBenchmarkVideoIds: string[];
   deepDive: ChannelDeepDiveBundle | null;
+  clone: CloneChannelBundle | null;
   compare: ChannelCompareBundle | null;
 };
 type SavedChannelPreset = {
@@ -89,13 +133,83 @@ type SavedChannelPreset = {
   name: string;
   createdAt: string;
   channelUrl: string;
+  myChannelUrl: string;
   compareChannelUrl: string;
+  benchmarkChannelUrl: string;
   channelSampleSize: number;
   compareSampleSize: number;
+  benchmarkSampleSize: number;
+  cloneNiche: string;
+  cloneStage: CloneChannelStage;
+  clonePresentationStyle: ClonePresentationStyle;
+  cloneGoal: CloneGoal;
   channelVideos: ChannelVideo[];
   selectedChannelVideoIds: string[];
   compareChannelVideos: ChannelVideo[];
   selectedCompareVideoIds: string[];
+  benchmarkChannelVideos: ChannelVideo[];
+  selectedBenchmarkVideoIds: string[];
+};
+type SavedWorkspaceProject = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  activeView: AppView;
+  experienceMode: ExperienceMode;
+  workspaceMode: WorkspaceMode;
+  insightTab: InsightTab;
+  channelResultTab: ChannelResultTab;
+  compareResultTab: CompareResultTab;
+  videoTitle: string;
+  videoUrl: string;
+  transcriptLanguage: string;
+  transcript: string;
+  summaryStyle: SummaryStyle;
+  audiencePreset: AudiencePreset;
+  outputLanguage: OutputLanguage;
+  copyFormat: CopyFormat;
+  exportFormat: ExportFormat;
+  cleaner: CleanerSettings;
+  analysis: AnalysisBundle;
+  activeBriefId: string | null;
+  transcriptSource: TranscriptSource | null;
+  batchInput: string;
+  batchResults: BatchResult[];
+  channelUrl: string;
+  myChannelUrl: string;
+  compareChannelUrl: string;
+  benchmarkChannelUrl: string;
+  channelSampleSize: number;
+  compareSampleSize: number;
+  benchmarkSampleSize: number;
+  cloneNiche: string;
+  cloneStage: CloneChannelStage;
+  clonePresentationStyle: ClonePresentationStyle;
+  cloneGoal: CloneGoal;
+  channelVideos: ChannelVideo[];
+  selectedChannelVideoIds: string[];
+  compareChannelVideos: ChannelVideo[];
+  selectedCompareVideoIds: string[];
+  benchmarkChannelVideos: ChannelVideo[];
+  selectedBenchmarkVideoIds: string[];
+  mainStudioImport: StudioImportSummary | null;
+  compareStudioImport: StudioImportSummary | null;
+  benchmarkStudioImport: StudioImportSummary | null;
+  channelDeepDive: ChannelDeepDiveBundle | null;
+  cloneChannel: CloneChannelBundle | null;
+  channelCompare: ChannelCompareBundle | null;
+  myChannelDeepDive: ChannelDeepDiveBundle | null;
+  myChannelVideos: ChannelVideo[];
+  channelPresetName: string;
+  historySearch: string;
+  commandSearch: string;
+  question: string;
+  answer: string;
+  timestampSearch: string;
+  proClipScoreFloor: number;
+  plannerChannelFilter: string;
+  statusState: StatusState;
 };
 type BatchResult = {
   id: string;
@@ -115,20 +229,19 @@ type ChannelVideo = {
   description?: string;
   thumbnailUrl?: string;
   thumbnailText?: string;
+  commentCountLabel?: string;
+  topComments?: Array<{
+    author: string;
+    text: string;
+    likeCount: string;
+    publishedLabel: string;
+  }>;
+  studioMetrics?: StudioVideoMetrics;
 };
 const WORKSPACE_MODE_LABELS: Record<WorkspaceMode, string> = {
   single: "Single",
   batch: "Batch",
   channel: "Channel",
-};
-const EXPERIENCE_MODE_LABELS: Record<ExperienceMode, string> = {
-  basic: "Basic",
-  pro: "Pro",
-};
-const APP_VIEW_LABELS: Record<AppView, string> = {
-  studio: "Brief Studio",
-  channel: "Channel Lab",
-  library: "Library",
 };
 const INSIGHT_TAB_LABELS: Record<InsightTab, string> = {
   summary: "Summary",
@@ -136,29 +249,45 @@ const INSIGHT_TAB_LABELS: Record<InsightTab, string> = {
   exports: "Exports",
   chat: "Chat",
 };
-const CHANNEL_RESULT_TAB_LABELS: Record<ChannelResultTab, string> = {
-  overview: "Overview",
-  strategy: "Strategy",
-  opportunities: "Opportunities",
-  deck: "Deck",
-  breakdown: "Breakdown",
-};
-const COMPARE_RESULT_TAB_LABELS: Record<CompareResultTab, string> = {
-  summary: "Summary",
-  winners: "Winners",
-  deck: "Deck",
-};
-const RESULT_STATUS_LABELS: Record<BatchResult["status"], string> = {
-  pending: "Pending",
-  done: "Done",
-  failed: "Failed",
-};
 const READY_STATUS: StatusState = { message: "Ready", tone: "ready" };
 const BASIC_INSIGHT_TABS: InsightTab[] = ["summary", "exports"];
 const PRO_INSIGHT_TABS: InsightTab[] = ["summary", "insights", "exports", "chat"];
 const BASIC_COPY_FORMATS = new Set<CopyFormat>(["brief", "description", "youtube", "meeting"]);
-const PRO_QUICK_EXPORTS: CopyFormat[] = ["brief", "calendar", "linkedin", "thread", "newsletter", "instagram", "upload-pack"];
 const CHANNEL_SAMPLE_SIZE_OPTIONS = [5, 8, 10, 12, 15, 20] as const;
+const CLONE_STAGE_OPTIONS: CloneChannelStage[] = ["new", "small", "growing", "established"];
+const CLONE_PRESENTATION_OPTIONS: ClonePresentationStyle[] = ["faceless", "on-camera"];
+const CLONE_GOAL_OPTIONS: CloneGoal[] = ["views", "subs", "authority", "sales"];
+const ANALYZE_SECTIONS: Array<{
+  id: AnalyzePanelSection;
+  label: string;
+  group: "analysis" | "outputs";
+}> = [
+  { id: "overview", label: "Overview", group: "analysis" },
+  { id: "seo", label: "SEO Audit", group: "analysis" },
+  { id: "style", label: "Style DNA", group: "analysis" },
+  { id: "opportunities", label: "Opportunities", group: "analysis" },
+  { id: "clone", label: "Clone Brief", group: "outputs" },
+  { id: "scorecard", label: "Scorecard", group: "outputs" },
+];
+const ANALYZE_SECTION_DESCRIPTIONS: Record<AnalyzePanelSection, string> = {
+  overview: "Load a target channel, shape the sample, and review the high-level clone thesis in one place.",
+  seo: "Inspect titles, search signals, and packaging patterns that the channel uses to win discovery.",
+  style: "Break down promise, tone, content pillars, and repeatable format choices into a reusable DNA.",
+  opportunities: "Surface the gaps, easiest lifts, and next-video moves worth testing first.",
+  clone: "Turn the channel read into an action-ready brief with borrow, adapt, and rollout steps.",
+  scorecard: "Review the category scores that show what is strong, weak, and worth differentiating.",
+};
+const TOOL_BREADCRUMB_LABELS: Record<AppView, string> = {
+  home: "Cipher Command Center",
+  studio: "Video Intel",
+  channel: "Channel Clone",
+  compare: "Compare",
+  analytics: "Studio Analytics",
+  projects: "Projects",
+  library: "Library",
+  exports: "Export",
+  settings: "Settings",
+};
 
 function normalizeSummaryStyle(value: unknown): SummaryStyle {
   return SUMMARY_STYLE_OPTIONS.some((option) => option.value === value) ? value as SummaryStyle : "executive";
@@ -183,24 +312,256 @@ function formatMetricCount(value: number): string {
   return `${Math.round(value)}`;
 }
 
+function formatPercentageValue(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "n/a";
+  return `${value.toFixed(value >= 10 ? 0 : 1)}%`;
+}
+
+function formatCloneContextMeta(niche: string, stage: CloneChannelStage, presentation: ClonePresentationStyle, goal: CloneGoal): string {
+  const parts = [
+    niche.trim() ? niche.trim() : "General niche",
+    stage,
+    presentation === "on-camera" ? "on-camera" : "faceless",
+    goal,
+  ];
+  return parts.join(" | ");
+}
+
+function compareSectionToResultTab(section: CompareSection): CompareResultTab {
+  return section === "overview" ? "summary" : section;
+}
+
+function compareResultTabToSection(tab: CompareResultTab): CompareSection {
+  return tab === "summary" ? "overview" : tab;
+}
+
+function normalizeSavedChannelCompare(value: unknown): ChannelCompareBundle | null {
+  if (!value || typeof value !== "object") return null;
+  const compare = value as Partial<ChannelCompareBundle> & { adaptToMe?: Partial<ChannelCompareBundle["adaptToMe"]> };
+  const nicheModel = compare.nicheModel && typeof compare.nicheModel === "object"
+    ? compare.nicheModel as Partial<ChannelNicheModelBundle>
+    : null;
+  return {
+    primaryLabel: typeof compare.primaryLabel === "string" ? compare.primaryLabel : "Primary Channel",
+    competitorLabel: typeof compare.competitorLabel === "string" ? compare.competitorLabel : "Compare Channel",
+    overview: typeof compare.overview === "string" ? compare.overview : "",
+    overlapThemes: Array.isArray(compare.overlapThemes) ? compare.overlapThemes.filter((item): item is string => typeof item === "string") : [],
+    decisions: Array.isArray(compare.decisions) ? compare.decisions.filter((item): item is ChannelCompareBundle["decisions"][number] => Boolean(item && typeof item === "object")) : [],
+    recommendations: Array.isArray(compare.recommendations) ? compare.recommendations.filter((item): item is string => typeof item === "string") : [],
+    whitespaceOpportunities: Array.isArray(compare.whitespaceOpportunities) ? compare.whitespaceOpportunities.filter((item): item is string => typeof item === "string") : [],
+    adaptToMe: {
+      overview: typeof compare.adaptToMe?.overview === "string" ? compare.adaptToMe.overview : "Reload this compare to generate the latest Adapt To Me plan.",
+      strengthsToKeep: Array.isArray(compare.adaptToMe?.strengthsToKeep) ? compare.adaptToMe.strengthsToKeep.filter((item): item is string => typeof item === "string") : [],
+      closeGaps: Array.isArray(compare.adaptToMe?.closeGaps) ? compare.adaptToMe.closeGaps.filter((item): item is string => typeof item === "string") : [],
+      borrowFirst: Array.isArray(compare.adaptToMe?.borrowFirst) ? compare.adaptToMe.borrowFirst.filter((item): item is string => typeof item === "string") : [],
+      experiments: Array.isArray(compare.adaptToMe?.experiments) ? compare.adaptToMe.experiments.filter((item): item is string => typeof item === "string") : [],
+      cautions: Array.isArray(compare.adaptToMe?.cautions) ? compare.adaptToMe.cautions.filter((item): item is string => typeof item === "string") : [],
+    },
+    nicheModel: nicheModel ? {
+      comparedChannels: Array.isArray(nicheModel.comparedChannels) ? nicheModel.comparedChannels.filter((item): item is string => typeof item === "string") : [],
+      overview: typeof nicheModel.overview === "string" ? nicheModel.overview : "Reload this compare to generate the latest niche model.",
+      sharedThemes: Array.isArray(nicheModel.sharedThemes) ? nicheModel.sharedThemes.filter((item): item is string => typeof item === "string") : [],
+      sharedFormats: Array.isArray(nicheModel.sharedFormats) ? nicheModel.sharedFormats.filter((item): item is string => typeof item === "string") : [],
+      sharedHooks: Array.isArray(nicheModel.sharedHooks) ? nicheModel.sharedHooks.filter((item): item is string => typeof item === "string") : [],
+      sharedThumbnailPhrases: Array.isArray(nicheModel.sharedThumbnailPhrases) ? nicheModel.sharedThumbnailPhrases.filter((item): item is string => typeof item === "string") : [],
+      growthSystem: Array.isArray(nicheModel.growthSystem) ? nicheModel.growthSystem.filter((item): item is string => typeof item === "string") : [],
+      packagingRules: Array.isArray(nicheModel.packagingRules) ? nicheModel.packagingRules.filter((item): item is string => typeof item === "string") : [],
+      contentSystem: Array.isArray(nicheModel.contentSystem) ? nicheModel.contentSystem.filter((item): item is string => typeof item === "string") : [],
+      audienceAngles: Array.isArray(nicheModel.audienceAngles) ? nicheModel.audienceAngles.filter((item): item is string => typeof item === "string") : [],
+      momentumSignals: Array.isArray(nicheModel.momentumSignals) ? nicheModel.momentumSignals.filter((item): item is string => typeof item === "string") : [],
+      whitespaceAngles: Array.isArray(nicheModel.whitespaceAngles) ? nicheModel.whitespaceAngles.filter((item): item is string => typeof item === "string") : [],
+      experiments: Array.isArray(nicheModel.experiments) ? nicheModel.experiments.filter((item): item is string => typeof item === "string") : [],
+      cautions: Array.isArray(nicheModel.cautions) ? nicheModel.cautions.filter((item): item is string => typeof item === "string") : [],
+      channelSnapshots: Array.isArray(nicheModel.channelSnapshots)
+        ? nicheModel.channelSnapshots.filter((item): item is ChannelNicheModelBundle["channelSnapshots"][number] => Boolean(item && typeof item === "object"))
+        : [],
+      exportDeck: typeof nicheModel.exportDeck === "string" ? nicheModel.exportDeck : "",
+    } : null,
+    metrics: {
+      primarySampleSize: typeof compare.metrics?.primarySampleSize === "number" ? compare.metrics.primarySampleSize : 0,
+      competitorSampleSize: typeof compare.metrics?.competitorSampleSize === "number" ? compare.metrics.competitorSampleSize : 0,
+      primaryAverageTitleScore: typeof compare.metrics?.primaryAverageTitleScore === "number" ? compare.metrics.primaryAverageTitleScore : 0,
+      competitorAverageTitleScore: typeof compare.metrics?.competitorAverageTitleScore === "number" ? compare.metrics.competitorAverageTitleScore : 0,
+      primaryAverageViews: typeof compare.metrics?.primaryAverageViews === "number" ? compare.metrics.primaryAverageViews : 0,
+      competitorAverageViews: typeof compare.metrics?.competitorAverageViews === "number" ? compare.metrics.competitorAverageViews : 0,
+      primaryStudioCoverage: typeof compare.metrics?.primaryStudioCoverage === "number" ? compare.metrics.primaryStudioCoverage : 0,
+      competitorStudioCoverage: typeof compare.metrics?.competitorStudioCoverage === "number" ? compare.metrics.competitorStudioCoverage : 0,
+      primaryAverageImpressions: typeof compare.metrics?.primaryAverageImpressions === "number" ? compare.metrics.primaryAverageImpressions : 0,
+      competitorAverageImpressions: typeof compare.metrics?.competitorAverageImpressions === "number" ? compare.metrics.competitorAverageImpressions : 0,
+      primaryAverageCtr: typeof compare.metrics?.primaryAverageCtr === "number" ? compare.metrics.primaryAverageCtr : 0,
+      competitorAverageCtr: typeof compare.metrics?.competitorAverageCtr === "number" ? compare.metrics.competitorAverageCtr : 0,
+      primaryAverageRetention: typeof compare.metrics?.primaryAverageRetention === "number" ? compare.metrics.primaryAverageRetention : 0,
+      competitorAverageRetention: typeof compare.metrics?.competitorAverageRetention === "number" ? compare.metrics.competitorAverageRetention : 0,
+      primaryAverageViewDurationSeconds: typeof compare.metrics?.primaryAverageViewDurationSeconds === "number" ? compare.metrics.primaryAverageViewDurationSeconds : 0,
+      competitorAverageViewDurationSeconds: typeof compare.metrics?.competitorAverageViewDurationSeconds === "number" ? compare.metrics.competitorAverageViewDurationSeconds : 0,
+      primaryTranscriptCoverage: typeof compare.metrics?.primaryTranscriptCoverage === "number" ? compare.metrics.primaryTranscriptCoverage : 0,
+      competitorTranscriptCoverage: typeof compare.metrics?.competitorTranscriptCoverage === "number" ? compare.metrics.competitorTranscriptCoverage : 0,
+      primaryAverageTranscriptWords: typeof compare.metrics?.primaryAverageTranscriptWords === "number" ? compare.metrics.primaryAverageTranscriptWords : 0,
+      competitorAverageTranscriptWords: typeof compare.metrics?.competitorAverageTranscriptWords === "number" ? compare.metrics.competitorAverageTranscriptWords : 0,
+    },
+    exportDeck: typeof compare.exportDeck === "string" ? compare.exportDeck : "",
+  };
+}
+
+function normalizeSavedCloneChannel(value: unknown): CloneChannelBundle | null {
+  if (!value || typeof value !== "object") return null;
+  const clone = value as Partial<CloneChannelBundle>;
+  return {
+    targetLabel: typeof clone.targetLabel === "string" ? clone.targetLabel : "Target Channel",
+    targetUrl: typeof clone.targetUrl === "string" ? clone.targetUrl : "",
+    myChannelLabel: typeof clone.myChannelLabel === "string" ? clone.myChannelLabel : null,
+    overview: typeof clone.overview === "string" ? clone.overview : "",
+    scores: Array.isArray(clone.scores) ? clone.scores.filter((item): item is CloneChannelBundle["scores"][number] => Boolean(item && typeof item === "object")) : [],
+    topLessons: Array.isArray(clone.topLessons) ? clone.topLessons.filter((item): item is string => typeof item === "string") : [],
+    topRisks: Array.isArray(clone.topRisks) ? clone.topRisks.filter((item): item is string => typeof item === "string") : [],
+    dna: clone.dna && typeof clone.dna === "object"
+      ? {
+        audience: Array.isArray(clone.dna.audience) ? clone.dna.audience.filter((item): item is string => typeof item === "string") : [],
+        promise: typeof clone.dna.promise === "string" ? clone.dna.promise : "",
+        pillars: Array.isArray(clone.dna.pillars) ? clone.dna.pillars.filter((item): item is string => typeof item === "string") : [],
+        formats: Array.isArray(clone.dna.formats) ? clone.dna.formats.filter((item): item is string => typeof item === "string") : [],
+        tone: Array.isArray(clone.dna.tone) ? clone.dna.tone.filter((item): item is string => typeof item === "string") : [],
+        creatorEdge: Array.isArray(clone.dna.creatorEdge) ? clone.dna.creatorEdge.filter((item): item is string => typeof item === "string") : [],
+      }
+      : { audience: [], promise: "", pillars: [], formats: [], tone: [], creatorEdge: [] },
+    winningVideos: clone.winningVideos && typeof clone.winningVideos === "object"
+      ? {
+        topPerformer: clone.winningVideos.topPerformer && typeof clone.winningVideos.topPerformer === "object" ? clone.winningVideos.topPerformer : null,
+        winners: Array.isArray(clone.winningVideos.winners) ? clone.winningVideos.winners.filter((item): item is CloneChannelBundle["winningVideos"]["winners"][number] => Boolean(item && typeof item === "object")) : [],
+        underperformers: Array.isArray(clone.winningVideos.underperformers) ? clone.winningVideos.underperformers.filter((item): item is CloneChannelBundle["winningVideos"]["underperformers"][number] => Boolean(item && typeof item === "object")) : [],
+        winnerVsBaseline: Array.isArray(clone.winningVideos.winnerVsBaseline) ? clone.winningVideos.winnerVsBaseline.filter((item): item is string => typeof item === "string") : [],
+        stealTheseStructures: Array.isArray(clone.winningVideos.stealTheseStructures) ? clone.winningVideos.stealTheseStructures.filter((item): item is string => typeof item === "string") : [],
+      }
+      : { topPerformer: null, winners: [], underperformers: [], winnerVsBaseline: [], stealTheseStructures: [] },
+    titleIntel: clone.titleIntel && typeof clone.titleIntel === "object"
+      ? {
+        formulaMix: Array.isArray(clone.titleIntel.formulaMix) ? clone.titleIntel.formulaMix.filter((item): item is string => typeof item === "string") : [],
+        triggerWords: Array.isArray(clone.titleIntel.triggerWords) ? clone.titleIntel.triggerWords.filter((item): item is string => typeof item === "string") : [],
+        clarityVsCuriosity: Array.isArray(clone.titleIntel.clarityVsCuriosity) ? clone.titleIntel.clarityVsCuriosity.filter((item): item is string => typeof item === "string") : [],
+        templates: Array.isArray(clone.titleIntel.templates) ? clone.titleIntel.templates.filter((item): item is string => typeof item === "string") : [],
+        avoidPatterns: Array.isArray(clone.titleIntel.avoidPatterns) ? clone.titleIntel.avoidPatterns.filter((item): item is string => typeof item === "string") : [],
+      }
+      : { formulaMix: [], triggerWords: [], clarityVsCuriosity: [], templates: [], avoidPatterns: [] },
+    thumbnailIntel: clone.thumbnailIntel && typeof clone.thumbnailIntel === "object"
+      ? {
+        summary: typeof clone.thumbnailIntel.summary === "string" ? clone.thumbnailIntel.summary : "",
+        textSignals: Array.isArray(clone.thumbnailIntel.textSignals) ? clone.thumbnailIntel.textSignals.filter((item): item is string => typeof item === "string") : [],
+        playbook: Array.isArray(clone.thumbnailIntel.playbook) ? clone.thumbnailIntel.playbook.filter((item): item is string => typeof item === "string") : [],
+        board: clone.thumbnailIntel.board && typeof clone.thumbnailIntel.board === "object"
+          ? {
+            summary: typeof clone.thumbnailIntel.board.summary === "string" ? clone.thumbnailIntel.board.summary : "",
+            densityNotes: Array.isArray(clone.thumbnailIntel.board.densityNotes) ? clone.thumbnailIntel.board.densityNotes.filter((item): item is string => typeof item === "string") : [],
+            messagingNotes: Array.isArray(clone.thumbnailIntel.board.messagingNotes) ? clone.thumbnailIntel.board.messagingNotes.filter((item): item is string => typeof item === "string") : [],
+            repeatedPhrases: Array.isArray(clone.thumbnailIntel.board.repeatedPhrases) ? clone.thumbnailIntel.board.repeatedPhrases.filter((item): item is string => typeof item === "string") : [],
+            rules: Array.isArray(clone.thumbnailIntel.board.rules) ? clone.thumbnailIntel.board.rules.filter((item): item is string => typeof item === "string") : [],
+            examples: Array.isArray(clone.thumbnailIntel.board.examples) ? clone.thumbnailIntel.board.examples.filter((item): item is { title: string; thumbnailText: string } => Boolean(item && typeof item === "object")) : [],
+          }
+          : { summary: "", densityNotes: [], messagingNotes: [], repeatedPhrases: [], rules: [], examples: [] },
+      }
+      : { summary: "", textSignals: [], playbook: [], board: { summary: "", densityNotes: [], messagingNotes: [], repeatedPhrases: [], rules: [], examples: [] } },
+    hookIntel: clone.hookIntel && typeof clone.hookIntel === "object"
+      ? {
+        dominantStyles: Array.isArray(clone.hookIntel.dominantStyles) ? clone.hookIntel.dominantStyles.filter((item): item is string => typeof item === "string") : [],
+        distribution: Array.isArray(clone.hookIntel.distribution) ? clone.hookIntel.distribution.filter((item): item is string => typeof item === "string") : [],
+        retentionNotes: Array.isArray(clone.hookIntel.retentionNotes) ? clone.hookIntel.retentionNotes.filter((item): item is string => typeof item === "string") : [],
+        templates: Array.isArray(clone.hookIntel.templates) ? clone.hookIntel.templates.filter((item): item is string => typeof item === "string") : [],
+      }
+      : { dominantStyles: [], distribution: [], retentionNotes: [], templates: [] },
+    audienceIntel: clone.audienceIntel && typeof clone.audienceIntel === "object"
+      ? {
+        positioning: Array.isArray(clone.audienceIntel.positioning) ? clone.audienceIntel.positioning.filter((item): item is string => typeof item === "string") : [],
+        valueDrivers: Array.isArray(clone.audienceIntel.valueDrivers) ? clone.audienceIntel.valueDrivers.filter((item): item is string => typeof item === "string") : [],
+        praise: Array.isArray(clone.audienceIntel.praise) ? clone.audienceIntel.praise.filter((item): item is string => typeof item === "string") : [],
+        requests: Array.isArray(clone.audienceIntel.requests) ? clone.audienceIntel.requests.filter((item): item is string => typeof item === "string") : [],
+        confusion: Array.isArray(clone.audienceIntel.confusion) ? clone.audienceIntel.confusion.filter((item): item is string => typeof item === "string") : [],
+        highSignalComments: Array.isArray(clone.audienceIntel.highSignalComments) ? clone.audienceIntel.highSignalComments.filter((item): item is string => typeof item === "string") : [],
+      }
+      : { positioning: [], valueDrivers: [], praise: [], requests: [], confusion: [], highSignalComments: [] },
+    monetizationIntel: clone.monetizationIntel && typeof clone.monetizationIntel === "object"
+      ? {
+        overview: Array.isArray(clone.monetizationIntel.overview) ? clone.monetizationIntel.overview.filter((item): item is string => typeof item === "string") : [],
+        ctaMix: Array.isArray(clone.monetizationIntel.ctaMix) ? clone.monetizationIntel.ctaMix.filter((item): item is string => typeof item === "string") : [],
+        offerTypes: Array.isArray(clone.monetizationIntel.offerTypes) ? clone.monetizationIntel.offerTypes.filter((item): item is string => typeof item === "string") : [],
+        lessons: Array.isArray(clone.monetizationIntel.lessons) ? clone.monetizationIntel.lessons.filter((item): item is string => typeof item === "string") : [],
+      }
+      : { overview: [], ctaMix: [], offerTypes: [], lessons: [] },
+    adaptationPlan: clone.adaptationPlan && typeof clone.adaptationPlan === "object"
+      ? {
+        overview: typeof clone.adaptationPlan.overview === "string" ? clone.adaptationPlan.overview : "",
+        fits: Array.isArray(clone.adaptationPlan.fits) ? clone.adaptationPlan.fits.filter((item): item is string => typeof item === "string") : [],
+        needsAdapting: Array.isArray(clone.adaptationPlan.needsAdapting) ? clone.adaptationPlan.needsAdapting.filter((item): item is string => typeof item === "string") : [],
+        ignore: Array.isArray(clone.adaptationPlan.ignore) ? clone.adaptationPlan.ignore.filter((item): item is string => typeof item === "string") : [],
+        fastestLift: Array.isArray(clone.adaptationPlan.fastestLift) ? clone.adaptationPlan.fastestLift.filter((item): item is string => typeof item === "string") : [],
+        bestPillarToStart: Array.isArray(clone.adaptationPlan.bestPillarToStart) ? clone.adaptationPlan.bestPillarToStart.filter((item): item is string => typeof item === "string") : [],
+        packagingToBorrowSafely: Array.isArray(clone.adaptationPlan.packagingToBorrowSafely) ? clone.adaptationPlan.packagingToBorrowSafely.filter((item): item is string => typeof item === "string") : [],
+      }
+      : { overview: "", fits: [], needsAdapting: [], ignore: [], fastestLift: [], bestPillarToStart: [], packagingToBorrowSafely: [] },
+    actionPlan: clone.actionPlan && typeof clone.actionPlan === "object"
+      ? {
+        borrow: Array.isArray(clone.actionPlan.borrow) ? clone.actionPlan.borrow.filter((item): item is string => typeof item === "string") : [],
+        adapt: Array.isArray(clone.actionPlan.adapt) ? clone.actionPlan.adapt.filter((item): item is string => typeof item === "string") : [],
+        avoid: Array.isArray(clone.actionPlan.avoid) ? clone.actionPlan.avoid.filter((item): item is string => typeof item === "string") : [],
+        firstMoves: Array.isArray(clone.actionPlan.firstMoves) ? clone.actionPlan.firstMoves.filter((item): item is string => typeof item === "string") : [],
+        day30: Array.isArray(clone.actionPlan.day30) ? clone.actionPlan.day30.filter((item): item is string => typeof item === "string") : [],
+        day60: Array.isArray(clone.actionPlan.day60) ? clone.actionPlan.day60.filter((item): item is string => typeof item === "string") : [],
+        day90: Array.isArray(clone.actionPlan.day90) ? clone.actionPlan.day90.filter((item): item is string => typeof item === "string") : [],
+        nextVideoIdeas: Array.isArray(clone.actionPlan.nextVideoIdeas) ? clone.actionPlan.nextVideoIdeas.filter((item): item is string => typeof item === "string") : [],
+        differentiate: Array.isArray(clone.actionPlan.differentiate) ? clone.actionPlan.differentiate.filter((item): item is string => typeof item === "string") : [],
+      }
+      : { borrow: [], adapt: [], avoid: [], firstMoves: [], day30: [], day60: [], day90: [], nextVideoIdeas: [], differentiate: [] },
+    exportDeck: typeof clone.exportDeck === "string" ? clone.exportDeck : "",
+  };
+}
+
 function formatSampleScope(selectedCount: number, loadedCount: number): string {
   if (loadedCount === 0) return "No Sample";
   return selectedCount >= loadedCount ? "Full Sample" : "Filtered Sample";
 }
 
+function arrayCount(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 function buildSavedReportMeta(report: SavedChannelReport): string {
-  const mainSelected = report.selectedChannelVideoIds.length;
-  const mainLoaded = report.channelVideos.length;
+  const mainSelected = arrayCount(report.selectedChannelVideoIds);
+  const mainLoaded = arrayCount(report.channelVideos);
   const mainMeta = `${mainSelected}/${mainLoaded} main (${formatSampleScope(mainSelected, mainLoaded)})`;
+  const cloneMeta = formatCloneContextMeta(report.cloneNiche, report.cloneStage, report.clonePresentationStyle, report.cloneGoal);
+  const myChannelMeta = stringValue(report.myChannelUrl).trim() ? " | my channel linked" : "";
+  const benchmarkSelected = arrayCount(report.selectedBenchmarkVideoIds);
+  const benchmarkLoaded = arrayCount(report.benchmarkChannelVideos);
+  const benchmarkMeta = benchmarkLoaded > 0 ? ` | ${benchmarkSelected}/${benchmarkLoaded} benchmark (${formatSampleScope(benchmarkSelected, benchmarkLoaded)})` : "";
 
   if (report.kind === "compare") {
-    const compareSelected = report.selectedCompareVideoIds.length;
-    const compareLoaded = report.compareChannelVideos.length;
+    const compareSelected = arrayCount(report.selectedCompareVideoIds);
+    const compareLoaded = arrayCount(report.compareChannelVideos);
     const compareMeta = `${compareSelected}/${compareLoaded} compare (${formatSampleScope(compareSelected, compareLoaded)})`;
-    return `Compare Report | ${formatCreatedAt(report.createdAt)} | ${mainMeta} | ${compareMeta}`;
+    return `Compare Report | ${formatCreatedAt(report.createdAt)} | ${mainMeta} | ${compareMeta}${benchmarkMeta}${myChannelMeta} | ${cloneMeta}`;
   }
 
-  return `Deep Dive | ${formatCreatedAt(report.createdAt)} | ${mainMeta}`;
+  return `Clone Plan | ${formatCreatedAt(report.createdAt)} | ${mainMeta}${benchmarkMeta}${myChannelMeta} | ${cloneMeta}`;
+}
+
+function buildSavedPresetMeta(preset: SavedChannelPreset): string {
+  const mainSelected = arrayCount(preset.selectedChannelVideoIds);
+  const mainLoaded = arrayCount(preset.channelVideos);
+  const mainMeta = `${mainSelected}/${mainLoaded} main (${formatSampleScope(mainSelected, mainLoaded)})`;
+  const compareSelected = arrayCount(preset.selectedCompareVideoIds);
+  const compareLoaded = arrayCount(preset.compareChannelVideos);
+  const compareMeta = compareLoaded > 0
+    ? ` | ${compareSelected}/${compareLoaded} compare (${formatSampleScope(compareSelected, compareLoaded)})`
+    : "";
+  const benchmarkSelected = arrayCount(preset.selectedBenchmarkVideoIds);
+  const benchmarkLoaded = arrayCount(preset.benchmarkChannelVideos);
+  const benchmarkMeta = benchmarkLoaded > 0
+    ? ` | ${benchmarkSelected}/${benchmarkLoaded} benchmark (${formatSampleScope(benchmarkSelected, benchmarkLoaded)})`
+    : "";
+  const myChannelMeta = stringValue(preset.myChannelUrl).trim() ? " | my channel" : "";
+  return `${formatCreatedAt(preset.createdAt)} | ${mainMeta}${compareMeta}${benchmarkMeta}${myChannelMeta} | ${formatCloneContextMeta(preset.cloneNiche, preset.cloneStage, preset.clonePresentationStyle, preset.cloneGoal)}`;
 }
 
 function inferTitleFromUrl(url: string): string {
@@ -543,15 +904,25 @@ function loadChannelReports(): SavedChannelReport[] {
         title: typeof item.title === "string" ? item.title : "Channel Report",
         createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
         channelUrl: typeof item.channelUrl === "string" ? item.channelUrl : "",
+        myChannelUrl: typeof item.myChannelUrl === "string" ? item.myChannelUrl : "",
         compareChannelUrl: typeof item.compareChannelUrl === "string" ? item.compareChannelUrl : "",
+        benchmarkChannelUrl: typeof item.benchmarkChannelUrl === "string" ? item.benchmarkChannelUrl : "",
         channelSampleSize: typeof item.channelSampleSize === "number" ? item.channelSampleSize : 8,
         compareSampleSize: typeof item.compareSampleSize === "number" ? item.compareSampleSize : 8,
+        benchmarkSampleSize: typeof item.benchmarkSampleSize === "number" ? item.benchmarkSampleSize : 8,
+        cloneNiche: typeof item.cloneNiche === "string" ? item.cloneNiche : "",
+        cloneStage: item.cloneStage === "new" || item.cloneStage === "small" || item.cloneStage === "growing" || item.cloneStage === "established" ? item.cloneStage : "small",
+        clonePresentationStyle: item.clonePresentationStyle === "faceless" || item.clonePresentationStyle === "on-camera" ? item.clonePresentationStyle : "on-camera",
+        cloneGoal: item.cloneGoal === "views" || item.cloneGoal === "subs" || item.cloneGoal === "authority" || item.cloneGoal === "sales" ? item.cloneGoal : "views",
         channelVideos: Array.isArray(item.channelVideos) ? item.channelVideos as ChannelVideo[] : [],
         selectedChannelVideoIds: Array.isArray(item.selectedChannelVideoIds) ? item.selectedChannelVideoIds.filter((value): value is string => typeof value === "string") : [],
         compareChannelVideos: Array.isArray(item.compareChannelVideos) ? item.compareChannelVideos as ChannelVideo[] : [],
         selectedCompareVideoIds: Array.isArray(item.selectedCompareVideoIds) ? item.selectedCompareVideoIds.filter((value): value is string => typeof value === "string") : [],
+        benchmarkChannelVideos: Array.isArray(item.benchmarkChannelVideos) ? item.benchmarkChannelVideos as ChannelVideo[] : [],
+        selectedBenchmarkVideoIds: Array.isArray(item.selectedBenchmarkVideoIds) ? item.selectedBenchmarkVideoIds.filter((value): value is string => typeof value === "string") : [],
         deepDive: item.deepDive && typeof item.deepDive === "object" ? item.deepDive as ChannelDeepDiveBundle : null,
-        compare: item.compare && typeof item.compare === "object" ? item.compare as ChannelCompareBundle : null,
+        clone: normalizeSavedCloneChannel((item as Partial<SavedChannelReport>).clone),
+        compare: normalizeSavedChannelCompare(item.compare),
       }));
   } catch {
     return [];
@@ -571,13 +942,22 @@ function loadChannelPresets(): SavedChannelPreset[] {
         name: typeof item.name === "string" && item.name.trim() ? item.name : "Selection Preset",
         createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
         channelUrl: typeof item.channelUrl === "string" ? item.channelUrl : "",
+        myChannelUrl: typeof item.myChannelUrl === "string" ? item.myChannelUrl : "",
         compareChannelUrl: typeof item.compareChannelUrl === "string" ? item.compareChannelUrl : "",
+        benchmarkChannelUrl: typeof item.benchmarkChannelUrl === "string" ? item.benchmarkChannelUrl : "",
         channelSampleSize: typeof item.channelSampleSize === "number" ? item.channelSampleSize : 8,
         compareSampleSize: typeof item.compareSampleSize === "number" ? item.compareSampleSize : 8,
+        benchmarkSampleSize: typeof item.benchmarkSampleSize === "number" ? item.benchmarkSampleSize : 8,
+        cloneNiche: typeof item.cloneNiche === "string" ? item.cloneNiche : "",
+        cloneStage: item.cloneStage === "new" || item.cloneStage === "small" || item.cloneStage === "growing" || item.cloneStage === "established" ? item.cloneStage : "small",
+        clonePresentationStyle: item.clonePresentationStyle === "faceless" || item.clonePresentationStyle === "on-camera" ? item.clonePresentationStyle : "on-camera",
+        cloneGoal: item.cloneGoal === "views" || item.cloneGoal === "subs" || item.cloneGoal === "authority" || item.cloneGoal === "sales" ? item.cloneGoal : "views",
         channelVideos: Array.isArray(item.channelVideos) ? item.channelVideos as ChannelVideo[] : [],
         selectedChannelVideoIds: Array.isArray(item.selectedChannelVideoIds) ? item.selectedChannelVideoIds.filter((value): value is string => typeof value === "string") : [],
         compareChannelVideos: Array.isArray(item.compareChannelVideos) ? item.compareChannelVideos as ChannelVideo[] : [],
         selectedCompareVideoIds: Array.isArray(item.selectedCompareVideoIds) ? item.selectedCompareVideoIds.filter((value): value is string => typeof value === "string") : [],
+        benchmarkChannelVideos: Array.isArray(item.benchmarkChannelVideos) ? item.benchmarkChannelVideos as ChannelVideo[] : [],
+        selectedBenchmarkVideoIds: Array.isArray(item.selectedBenchmarkVideoIds) ? item.selectedBenchmarkVideoIds.filter((value): value is string => typeof value === "string") : [],
       }));
   } catch {
     return [];
@@ -593,13 +973,56 @@ function uniqueUrls(value: string): string[] {
   });
 }
 
+function renderLayoutIcon(kind: "home" | "library" | "analyze" | "compare" | "saved" | "export" | "settings" | "overview" | "seo" | "style" | "opportunities" | "clone" | "scorecard") {
+  if (kind === "home") {
+    return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2.5 7.5L8 3l5.5 4.5" strokeLinecap="round" strokeLinejoin="round" /><path d="M4.5 6.8v6h7v-6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+  }
+  if (kind === "library") {
+    return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M4 2.5h8a1 1 0 0 1 1 1V13l-5-2-5 2V3.5a1 1 0 0 1 1-1z" strokeLinejoin="round" /></svg>;
+  }
+  if (kind === "analyze" || kind === "seo") {
+    return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="7" cy="7" r="4" /><path d="M10.5 10.5L13.5 13.5" strokeLinecap="round" /></svg>;
+  }
+  if (kind === "compare") {
+    return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 4h4M3 8h6M3 12h4" strokeLinecap="round" /><path d="M10 7l3 1-3 1" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+  }
+  if (kind === "saved") {
+    return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="2" width="12" height="12" rx="2" /><path d="M5 6h6M5 9h4" strokeLinecap="round" /></svg>;
+  }
+  if (kind === "export") {
+    return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M8 2v8M5 7l3 3 3-3" strokeLinecap="round" strokeLinejoin="round" /><path d="M3 13h10" strokeLinecap="round" /></svg>;
+  }
+  if (kind === "settings") {
+    return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="2" /><path d="M8 2v1M8 13v1M2 8h1M13 8h1M3.8 3.8l.7.7M11.5 11.5l.7.7M3.8 12.2l.7-.7M11.5 4.5l.7-.7" strokeLinecap="round" /></svg>;
+  }
+  if (kind === "overview") {
+    return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="2" width="5" height="5" rx="1" /><rect x="9" y="2" width="5" height="5" rx="1" /><rect x="2" y="9" width="5" height="5" rx="1" /><rect x="9" y="9" width="5" height="5" rx="1" /></svg>;
+  }
+  if (kind === "style") {
+    return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 11c0 0 2-4 5-4s5 4 5 4" strokeLinecap="round" /><circle cx="8" cy="5" r="2" /></svg>;
+  }
+  if (kind === "opportunities") {
+    return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M8 3v3M8 10v3M3 8h3M10 8h3" strokeLinecap="round" /></svg>;
+  }
+  if (kind === "clone") {
+    return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="2" y="4" width="8" height="10" rx="1.5" /><path d="M5 4V3a1.5 1.5 0 0 1 3 0v1M6 2h6a1.5 1.5 0 0 1 1.5 1.5V10" strokeLinecap="round" /></svg>;
+  }
+  return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 11l4-4 2 2 5-5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
 export default function App() {
   const [experienceMode, setExperienceMode] = useState<ExperienceMode>("basic");
-  const [activeView, setActiveView] = useState<AppView>("studio");
+  const [activeView, setActiveView] = useState<AppView>("home");
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("single");
   const [insightTab, setInsightTab] = useState<InsightTab>("summary");
+  const [viSection, setViSection] = useState<ViSection>("input");
+  const [librarySection, setLibrarySection] = useState<LibrarySection>("overview");
+  const [projectsSection, setProjectsSection] = useState<ProjectsSection>("all");
+  const [analyticsSection, setAnalyticsSection] = useState<AnalyticsSection>("overview");
   const [channelResultTab, setChannelResultTab] = useState<ChannelResultTab>("overview");
   const [compareResultTab, setCompareResultTab] = useState<CompareResultTab>("summary");
+  const [compareSection, setCompareSection] = useState<CompareSection>("overview");
+  const [analyzeSection, setAnalyzeSection] = useState<AnalyzePanelSection>("overview");
   const [videoTitle, setVideoTitle] = useState(SAMPLE_TITLE);
   const [videoUrl, setVideoUrl] = useState(SAMPLE_URL);
   const [transcriptLanguage, setTranscriptLanguage] = useState("");
@@ -619,28 +1042,334 @@ export default function App() {
     outputLanguage: "en",
     cleaner: CLEANER_DEFAULTS,
   }));
-  const [briefs, setBriefs] = useState<SavedBrief[]>(() => loadBriefs());
-  const [savedChannelReports, setSavedChannelReports] = useState<SavedChannelReport[]>(() => loadChannelReports());
-  const [savedChannelPresets, setSavedChannelPresets] = useState<SavedChannelPreset[]>(() => loadChannelPresets());
+  const {
+    briefs,
+    projects,
+    savedChannelPresets,
+    savedChannelReports,
+    setBriefs,
+    setSavedChannelPresets,
+    setSavedChannelReports,
+    setWorkspaceProjects,
+    workspaceProjects,
+  } = useProjectStore<SavedBrief, SavedChannelReport, SavedChannelPreset, SavedWorkspaceProject>({
+    deserializeBrief: (payload) => {
+      if (!payload || typeof payload !== "object") return null;
+      const brief = payload as Partial<SavedBrief>;
+      const nextTitle = typeof brief.title === "string" ? brief.title : "";
+      const nextUrl = typeof brief.url === "string" ? brief.url : "";
+      const nextTranscript = typeof brief.transcript === "string" ? brief.transcript : "";
+      if (!nextTitle || !nextTranscript) return null;
+      const nextSummaryStyle = normalizeSummaryStyle(brief.summaryStyle);
+      const nextAudiencePreset = normalizeAudiencePreset(brief.audiencePreset);
+      const nextOutputLanguage = normalizeOutputLanguage(brief.outputLanguage);
+      return {
+        id: typeof brief.id === "string" ? brief.id : `brief-${Date.now()}`,
+        title: nextTitle,
+        url: nextUrl,
+        transcript: nextTranscript,
+        createdAt: typeof brief.createdAt === "string" ? brief.createdAt : new Date().toISOString(),
+        analysis: brief.analysis && typeof brief.analysis === "object"
+          ? brief.analysis as AnalysisBundle
+          : buildAnalysis({
+            title: nextTitle,
+            url: nextUrl,
+            transcript: nextTranscript,
+            summaryStyle: nextSummaryStyle,
+            audiencePreset: nextAudiencePreset,
+            outputLanguage: nextOutputLanguage,
+            cleaner: CLEANER_DEFAULTS,
+          }),
+        summaryStyle: nextSummaryStyle,
+        audiencePreset: nextAudiencePreset,
+        outputLanguage: nextOutputLanguage,
+      };
+    },
+    deserializePreset: (payload) => {
+      if (!payload || typeof payload !== "object") return null;
+      const item = payload as Partial<SavedChannelPreset>;
+      return {
+        id: typeof item.id === "string" ? item.id : `channel-preset-${Date.now()}`,
+        name: typeof item.name === "string" && item.name.trim() ? item.name : "Selection Preset",
+        createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+        channelUrl: typeof item.channelUrl === "string" ? item.channelUrl : "",
+        myChannelUrl: typeof item.myChannelUrl === "string" ? item.myChannelUrl : "",
+        compareChannelUrl: typeof item.compareChannelUrl === "string" ? item.compareChannelUrl : "",
+        benchmarkChannelUrl: typeof item.benchmarkChannelUrl === "string" ? item.benchmarkChannelUrl : "",
+        channelSampleSize: typeof item.channelSampleSize === "number" ? item.channelSampleSize : 8,
+        compareSampleSize: typeof item.compareSampleSize === "number" ? item.compareSampleSize : 8,
+        benchmarkSampleSize: typeof item.benchmarkSampleSize === "number" ? item.benchmarkSampleSize : 8,
+        cloneNiche: typeof item.cloneNiche === "string" ? item.cloneNiche : "",
+        cloneStage: item.cloneStage === "new" || item.cloneStage === "small" || item.cloneStage === "growing" || item.cloneStage === "established" ? item.cloneStage : "small",
+        clonePresentationStyle: item.clonePresentationStyle === "faceless" || item.clonePresentationStyle === "on-camera" ? item.clonePresentationStyle : "on-camera",
+        cloneGoal: item.cloneGoal === "views" || item.cloneGoal === "subs" || item.cloneGoal === "authority" || item.cloneGoal === "sales" ? item.cloneGoal : "views",
+        channelVideos: Array.isArray(item.channelVideos) ? item.channelVideos as ChannelVideo[] : [],
+        selectedChannelVideoIds: Array.isArray(item.selectedChannelVideoIds) ? item.selectedChannelVideoIds.filter((value): value is string => typeof value === "string") : [],
+        compareChannelVideos: Array.isArray(item.compareChannelVideos) ? item.compareChannelVideos as ChannelVideo[] : [],
+        selectedCompareVideoIds: Array.isArray(item.selectedCompareVideoIds) ? item.selectedCompareVideoIds.filter((value): value is string => typeof value === "string") : [],
+        benchmarkChannelVideos: Array.isArray(item.benchmarkChannelVideos) ? item.benchmarkChannelVideos as ChannelVideo[] : [],
+        selectedBenchmarkVideoIds: Array.isArray(item.selectedBenchmarkVideoIds) ? item.selectedBenchmarkVideoIds.filter((value): value is string => typeof value === "string") : [],
+      };
+    },
+    deserializeReport: (payload) => {
+      if (!payload || typeof payload !== "object") return null;
+      const item = payload as Partial<SavedChannelReport>;
+      return {
+        id: typeof item.id === "string" ? item.id : `channel-report-${Date.now()}`,
+        kind: item.kind === "compare" ? "compare" : "deep-dive",
+        title: typeof item.title === "string" ? item.title : "Channel Report",
+        createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+        channelUrl: typeof item.channelUrl === "string" ? item.channelUrl : "",
+        myChannelUrl: typeof item.myChannelUrl === "string" ? item.myChannelUrl : "",
+        compareChannelUrl: typeof item.compareChannelUrl === "string" ? item.compareChannelUrl : "",
+        benchmarkChannelUrl: typeof item.benchmarkChannelUrl === "string" ? item.benchmarkChannelUrl : "",
+        channelSampleSize: typeof item.channelSampleSize === "number" ? item.channelSampleSize : 8,
+        compareSampleSize: typeof item.compareSampleSize === "number" ? item.compareSampleSize : 8,
+        benchmarkSampleSize: typeof item.benchmarkSampleSize === "number" ? item.benchmarkSampleSize : 8,
+        cloneNiche: typeof item.cloneNiche === "string" ? item.cloneNiche : "",
+        cloneStage: item.cloneStage === "new" || item.cloneStage === "small" || item.cloneStage === "growing" || item.cloneStage === "established" ? item.cloneStage : "small",
+        clonePresentationStyle: item.clonePresentationStyle === "faceless" || item.clonePresentationStyle === "on-camera" ? item.clonePresentationStyle : "on-camera",
+        cloneGoal: item.cloneGoal === "views" || item.cloneGoal === "subs" || item.cloneGoal === "authority" || item.cloneGoal === "sales" ? item.cloneGoal : "views",
+        channelVideos: Array.isArray(item.channelVideos) ? item.channelVideos as ChannelVideo[] : [],
+        selectedChannelVideoIds: Array.isArray(item.selectedChannelVideoIds) ? item.selectedChannelVideoIds.filter((value): value is string => typeof value === "string") : [],
+        compareChannelVideos: Array.isArray(item.compareChannelVideos) ? item.compareChannelVideos as ChannelVideo[] : [],
+        selectedCompareVideoIds: Array.isArray(item.selectedCompareVideoIds) ? item.selectedCompareVideoIds.filter((value): value is string => typeof value === "string") : [],
+        benchmarkChannelVideos: Array.isArray(item.benchmarkChannelVideos) ? item.benchmarkChannelVideos as ChannelVideo[] : [],
+        selectedBenchmarkVideoIds: Array.isArray(item.selectedBenchmarkVideoIds) ? item.selectedBenchmarkVideoIds.filter((value): value is string => typeof value === "string") : [],
+        deepDive: item.deepDive && typeof item.deepDive === "object" ? item.deepDive as ChannelDeepDiveBundle : null,
+        clone: normalizeSavedCloneChannel(item.clone),
+        compare: normalizeSavedChannelCompare(item.compare),
+      };
+    },
+    deserializeWorkspace: (payload) => {
+      if (!payload || typeof payload !== "object") return null;
+      const item = payload as Partial<SavedWorkspaceProject>;
+      return {
+        id: typeof item.id === "string" ? item.id : `workspace-${Date.now()}`,
+        title: typeof item.title === "string" && item.title.trim() ? item.title : "Workspace Snapshot",
+        createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString(),
+        updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : (typeof item.createdAt === "string" ? item.createdAt : new Date().toISOString()),
+        activeView: item.activeView ?? "home",
+        experienceMode: item.experienceMode === "pro" ? "pro" : "basic",
+        workspaceMode: item.workspaceMode === "batch" || item.workspaceMode === "channel" ? item.workspaceMode : "single",
+        insightTab: item.insightTab === "insights" || item.insightTab === "exports" || item.insightTab === "chat" ? item.insightTab : "summary",
+        channelResultTab: item.channelResultTab ?? "overview",
+        compareResultTab: item.compareResultTab ?? "summary",
+        videoTitle: typeof item.videoTitle === "string" ? item.videoTitle : "",
+        videoUrl: typeof item.videoUrl === "string" ? item.videoUrl : "",
+        transcriptLanguage: typeof item.transcriptLanguage === "string" ? item.transcriptLanguage : "",
+        transcript: typeof item.transcript === "string" ? item.transcript : "",
+        summaryStyle: normalizeSummaryStyle(item.summaryStyle),
+        audiencePreset: normalizeAudiencePreset(item.audiencePreset),
+        outputLanguage: normalizeOutputLanguage(item.outputLanguage),
+        copyFormat: COPY_FORMAT_OPTIONS.some((option) => option.value === item.copyFormat) ? item.copyFormat as CopyFormat : "brief",
+        exportFormat: item.exportFormat === "html" || item.exportFormat === "txt" ? item.exportFormat : "md",
+        cleaner: item.cleaner && typeof item.cleaner === "object"
+          ? {
+            removeNoiseTags: Boolean(item.cleaner.removeNoiseTags),
+            removeSpeakerLabels: Boolean(item.cleaner.removeSpeakerLabels),
+            dedupeLines: Boolean(item.cleaner.dedupeLines),
+            trimFillers: Boolean(item.cleaner.trimFillers),
+          }
+          : CLEANER_DEFAULTS,
+        analysis: item.analysis && typeof item.analysis === "object"
+          ? item.analysis as AnalysisBundle
+          : buildAnalysis({
+            title: typeof item.videoTitle === "string" ? item.videoTitle : "",
+            url: typeof item.videoUrl === "string" ? item.videoUrl : "",
+            transcript: typeof item.transcript === "string" ? item.transcript : "",
+            summaryStyle: normalizeSummaryStyle(item.summaryStyle),
+            audiencePreset: normalizeAudiencePreset(item.audiencePreset),
+            outputLanguage: normalizeOutputLanguage(item.outputLanguage),
+            cleaner: item.cleaner && typeof item.cleaner === "object"
+              ? {
+                removeNoiseTags: Boolean(item.cleaner.removeNoiseTags),
+                removeSpeakerLabels: Boolean(item.cleaner.removeSpeakerLabels),
+                dedupeLines: Boolean(item.cleaner.dedupeLines),
+                trimFillers: Boolean(item.cleaner.trimFillers),
+              }
+              : CLEANER_DEFAULTS,
+          }),
+        activeBriefId: typeof item.activeBriefId === "string" ? item.activeBriefId : null,
+        transcriptSource: item.transcriptSource && typeof item.transcriptSource === "object"
+          ? {
+            lineCount: typeof item.transcriptSource.lineCount === "number" ? item.transcriptSource.lineCount : 0,
+            language: typeof item.transcriptSource.language === "string" ? item.transcriptSource.language : "",
+            videoId: typeof item.transcriptSource.videoId === "string" ? item.transcriptSource.videoId : "",
+          }
+          : null,
+        batchInput: typeof item.batchInput === "string" ? item.batchInput : "",
+        batchResults: Array.isArray(item.batchResults) ? item.batchResults as BatchResult[] : [],
+        channelUrl: typeof item.channelUrl === "string" ? item.channelUrl : "",
+        myChannelUrl: typeof item.myChannelUrl === "string" ? item.myChannelUrl : "",
+        compareChannelUrl: typeof item.compareChannelUrl === "string" ? item.compareChannelUrl : "",
+        benchmarkChannelUrl: typeof item.benchmarkChannelUrl === "string" ? item.benchmarkChannelUrl : "",
+        channelSampleSize: typeof item.channelSampleSize === "number" ? item.channelSampleSize : 8,
+        compareSampleSize: typeof item.compareSampleSize === "number" ? item.compareSampleSize : 8,
+        benchmarkSampleSize: typeof item.benchmarkSampleSize === "number" ? item.benchmarkSampleSize : 8,
+        cloneNiche: typeof item.cloneNiche === "string" ? item.cloneNiche : "",
+        cloneStage: item.cloneStage === "new" || item.cloneStage === "small" || item.cloneStage === "growing" || item.cloneStage === "established" ? item.cloneStage : "small",
+        clonePresentationStyle: item.clonePresentationStyle === "faceless" || item.clonePresentationStyle === "on-camera" ? item.clonePresentationStyle : "on-camera",
+        cloneGoal: item.cloneGoal === "views" || item.cloneGoal === "subs" || item.cloneGoal === "authority" || item.cloneGoal === "sales" ? item.cloneGoal : "views",
+        channelVideos: Array.isArray(item.channelVideos) ? item.channelVideos as ChannelVideo[] : [],
+        selectedChannelVideoIds: Array.isArray(item.selectedChannelVideoIds) ? item.selectedChannelVideoIds.filter((value): value is string => typeof value === "string") : [],
+        compareChannelVideos: Array.isArray(item.compareChannelVideos) ? item.compareChannelVideos as ChannelVideo[] : [],
+        selectedCompareVideoIds: Array.isArray(item.selectedCompareVideoIds) ? item.selectedCompareVideoIds.filter((value): value is string => typeof value === "string") : [],
+        benchmarkChannelVideos: Array.isArray(item.benchmarkChannelVideos) ? item.benchmarkChannelVideos as ChannelVideo[] : [],
+        selectedBenchmarkVideoIds: Array.isArray(item.selectedBenchmarkVideoIds) ? item.selectedBenchmarkVideoIds.filter((value): value is string => typeof value === "string") : [],
+        mainStudioImport: item.mainStudioImport && typeof item.mainStudioImport === "object" ? item.mainStudioImport as StudioImportSummary : null,
+        compareStudioImport: item.compareStudioImport && typeof item.compareStudioImport === "object" ? item.compareStudioImport as StudioImportSummary : null,
+        benchmarkStudioImport: item.benchmarkStudioImport && typeof item.benchmarkStudioImport === "object" ? item.benchmarkStudioImport as StudioImportSummary : null,
+        channelDeepDive: item.channelDeepDive && typeof item.channelDeepDive === "object" ? item.channelDeepDive as ChannelDeepDiveBundle : null,
+        cloneChannel: normalizeSavedCloneChannel(item.cloneChannel),
+        channelCompare: normalizeSavedChannelCompare(item.channelCompare),
+        myChannelDeepDive: item.myChannelDeepDive && typeof item.myChannelDeepDive === "object" ? item.myChannelDeepDive as ChannelDeepDiveBundle : null,
+        myChannelVideos: Array.isArray(item.myChannelVideos) ? item.myChannelVideos as ChannelVideo[] : [],
+        channelPresetName: typeof item.channelPresetName === "string" ? item.channelPresetName : "",
+        historySearch: typeof item.historySearch === "string" ? item.historySearch : "",
+        commandSearch: typeof item.commandSearch === "string" ? item.commandSearch : "",
+        question: typeof item.question === "string" ? item.question : "",
+        answer: typeof item.answer === "string" ? item.answer : "",
+        timestampSearch: typeof item.timestampSearch === "string" ? item.timestampSearch : "",
+        proClipScoreFloor: typeof item.proClipScoreFloor === "number" ? item.proClipScoreFloor : 14,
+        plannerChannelFilter: typeof item.plannerChannelFilter === "string" ? item.plannerChannelFilter : "all",
+        statusState: item.statusState && typeof item.statusState === "object"
+          ? {
+            message: typeof item.statusState.message === "string" ? item.statusState.message : READY_STATUS.message,
+            tone: item.statusState.tone === "busy" || item.statusState.tone === "success" || item.statusState.tone === "error" ? item.statusState.tone : "ready",
+          }
+          : READY_STATUS,
+      };
+    },
+    getBriefSnapshot: (brief) => ({
+      id: brief.id,
+      title: brief.title,
+      createdAt: brief.createdAt,
+      updatedAt: brief.createdAt,
+      payload: brief,
+    }),
+    getPresetSnapshot: (preset) => ({
+      id: preset.id,
+      title: preset.name,
+      createdAt: preset.createdAt,
+      updatedAt: preset.createdAt,
+      payload: preset,
+    }),
+    getReportSnapshot: (report) => ({
+      id: report.id,
+      title: report.title,
+      createdAt: report.createdAt,
+      updatedAt: report.createdAt,
+      payload: report,
+    }),
+    getWorkspaceSnapshot: (workspace) => ({
+      id: workspace.id,
+      title: workspace.title,
+      createdAt: workspace.createdAt,
+      updatedAt: workspace.updatedAt,
+      payload: workspace,
+    }),
+    loadLegacyCollections: () => ({
+      briefs: loadBriefs(),
+      reports: loadChannelReports(),
+      presets: loadChannelPresets(),
+      workspaces: [],
+    }),
+  });
   const [activeBriefId, setActiveBriefId] = useState<string | null>(null);
+  const [currentWorkspaceProjectId, setCurrentWorkspaceProjectId] = useState<string | null>(null);
   const [transcriptSource, setTranscriptSource] = useState<TranscriptSource | null>(null);
   const [statusState, setStatusState] = useState<StatusState>(READY_STATUS);
   const [batchInput, setBatchInput] = useState("");
   const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
-  const [channelUrl, setChannelUrl] = useState("");
-  const [channelSampleSize, setChannelSampleSize] = useState<number>(8);
-  const [channelVideos, setChannelVideos] = useState<ChannelVideo[]>([]);
-  const [selectedChannelVideoIds, setSelectedChannelVideoIds] = useState<string[]>([]);
-  const [channelDeepDive, setChannelDeepDive] = useState<ChannelDeepDiveBundle | null>(null);
-  const [compareChannelUrl, setCompareChannelUrl] = useState("");
-  const [compareSampleSize, setCompareSampleSize] = useState<number>(8);
-  const [compareChannelVideos, setCompareChannelVideos] = useState<ChannelVideo[]>([]);
-  const [selectedCompareVideoIds, setSelectedCompareVideoIds] = useState<string[]>([]);
-  const [channelCompare, setChannelCompare] = useState<ChannelCompareBundle | null>(null);
-  const [channelPresetName, setChannelPresetName] = useState("");
+  const {
+    benchmarkChannelUrl,
+    benchmarkChannelVideos,
+    benchmarkSampleSize,
+    benchmarkStudioImport,
+    channelCompare,
+    channelDeepDive,
+    channelPresetName,
+    channelSampleSize,
+    channelUrl,
+    channelVideos,
+    clearBenchmarkSelection,
+    clearChannelSelection,
+    clearCompareSelection,
+    cloneChannel,
+    cloneGoal,
+    cloneNiche,
+    clonePresentationStyle,
+    cloneStage,
+    compareChannelUrl,
+    compareChannelVideos,
+    compareSampleSize,
+    compareStudioImport,
+    handleBenchmarkChannelUrlChange,
+    handleCompareChannelUrlChange,
+    mainStudioImport,
+    myChannelDeepDive,
+    myChannelUrl,
+    myChannelVideos,
+    selectedBenchmarkVideoIds,
+    selectedChannelVideoIds,
+    selectedCompareVideoIds,
+    selectAllBenchmarkVideos,
+    selectAllChannelVideos,
+    selectAllCompareVideos,
+    selectTopBenchmarkVideos,
+    selectTopChannelVideos,
+    selectTopCompareVideos,
+    setBenchmarkChannelVideos,
+    setBenchmarkChannelUrl,
+    setBenchmarkSampleSize,
+    setBenchmarkStudioImport,
+    setChannelCompare,
+    setChannelDeepDive,
+    setChannelPresetName,
+    setChannelSampleSize,
+    setChannelUrl,
+    setChannelVideos,
+    setCloneChannel,
+    setCloneGoal,
+    setCloneNiche,
+    setClonePresentationStyle,
+    setCloneStage,
+    setCompareChannelUrl,
+    setCompareChannelVideos,
+    setCompareSampleSize,
+    setCompareStudioImport,
+    setMainStudioImport,
+    setMyChannelDeepDive,
+    setMyChannelUrl,
+    setMyChannelVideos,
+    setSelectedBenchmarkVideoIds,
+    setSelectedChannelVideoIds,
+    setSelectedCompareVideoIds,
+    toggleBenchmarkVideo,
+    toggleChannelVideo,
+    toggleCompareVideo,
+    applySavedPreset,
+    applySavedReport,
+  } = useChannelLabState<
+    ChannelVideo,
+    ChannelDeepDiveBundle,
+    CloneChannelBundle,
+    ChannelCompareBundle,
+    StudioImportSummary,
+    CloneChannelStage,
+    ClonePresentationStyle,
+    CloneGoal
+  >({
+    initialCloneGoal: "views",
+    initialClonePresentationStyle: "on-camera",
+    initialCloneStage: "small",
+  });
   const [historySearch, setHistorySearch] = useState("");
+  const [commandSearch, setCommandSearch] = useState("");
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
+  const [channelPresetStatusMessage, setChannelPresetStatusMessage] = useState("");
   const [timestampSearch, setTimestampSearch] = useState("");
   const [proClipScoreFloor, setProClipScoreFloor] = useState(14);
   const [plannerChannelFilter, setPlannerChannelFilter] = useState("all");
@@ -664,8 +1393,18 @@ export default function App() {
     if (workspaceMode !== "single") setWorkspaceMode("single");
     if (!BASIC_INSIGHT_TABS.includes(insightTab)) setInsightTab("summary");
     if (!BASIC_COPY_FORMATS.has(copyFormat)) setCopyFormat("brief");
-    if (activeView === "channel") setActiveView("studio");
+    if (activeView === "channel" || activeView === "compare" || activeView === "analytics") setActiveView("studio");
   }, [activeView, copyFormat, experienceMode, insightTab, workspaceMode]);
+
+  useEffect(() => {
+    if (viSection === "input") return;
+    if (viSection !== insightTab) setViSection(insightTab);
+  }, [insightTab, viSection]);
+
+  useEffect(() => {
+    const nextCompareSection = compareResultTabToSection(compareResultTab);
+    if (compareSection !== nextCompareSection) setCompareSection(nextCompareSection);
+  }, [compareResultTab, compareSection]);
 
   useEffect(() => {
     if (!transcript.trim()) return;
@@ -684,11 +1423,12 @@ export default function App() {
 
   const runtimeReady = typeof window.desktopRuntime?.fetchYoutubeTranscript === "function";
   const canImportFile = typeof window.desktopRuntime?.importTranscriptFile === "function";
+  const canImportAnalytics = typeof window.desktopRuntime?.importAnalyticsFile === "function";
   const canExportFile = typeof window.desktopRuntime?.saveExportFile === "function";
   const canExportPdf = typeof window.desktopRuntime?.savePdfFile === "function";
   const canFetchChannel = typeof window.desktopRuntime?.fetchYoutubeChannelVideos === "function";
   const isProMode = experienceMode === "pro";
-  const visibleAppViews = isProMode ? (["studio", "channel", "library"] as const) : (["studio", "library"] as const);
+  const visibleAppViews = ["home", "studio", "channel", "compare", "analytics", "projects", "library", "exports", "settings"] as const;
   const visibleStudioModes = isProMode ? (["single", "batch"] as const) : (["single"] as const);
   const visibleInsightTabs = isProMode ? PRO_INSIGHT_TABS : BASIC_INSIGHT_TABS;
   const availableCopyFormats = COPY_FORMAT_OPTIONS.filter((option) => isProMode || BASIC_COPY_FORMATS.has(option.value));
@@ -710,36 +1450,84 @@ export default function App() {
     : analysis.contentCalendar.some((entry) => entry.primaryChannel === "YouTube")
       ? "Anchor with long-form, then repurpose aggressively."
       : "Lead with repurposed posts and test response.";
-  const filteredBriefs = briefs.filter((brief) => {
-    const needle = historySearch.trim().toLowerCase();
-    if (!needle) return true;
-    return brief.title.toLowerCase().includes(needle) || brief.url.toLowerCase().includes(needle) || brief.analysis.summary.keywords.some((keyword) => keyword.includes(needle));
+  const {
+    benchmarkStudioCoverage,
+    mainStudioCoverage,
+    compareStudioCoverage,
+    selectedBenchmarkVideos,
+    selectedChannelVideos,
+    selectedCompareVideos,
+  } = useChannelLabSelections({
+    benchmarkChannelVideos,
+    channelVideos,
+    compareChannelVideos,
+    selectedBenchmarkVideoIds,
+    selectedChannelVideoIds,
+    selectedCompareVideoIds,
   });
-  const filteredChannelReports = savedChannelReports.filter((report) => {
-    const needle = historySearch.trim().toLowerCase();
-    if (!needle) return true;
-    return report.title.toLowerCase().includes(needle)
-      || report.channelUrl.toLowerCase().includes(needle)
-      || report.compareChannelUrl.toLowerCase().includes(needle)
-      || report.deepDive?.channelLabel.toLowerCase().includes(needle)
-      || report.compare?.primaryLabel.toLowerCase().includes(needle)
-      || report.compare?.competitorLabel.toLowerCase().includes(needle);
+  const {
+    channelPresetCards,
+    homeRecentProjects,
+    homeRecentBriefs,
+    homeRecentPresets,
+    homeRecentReports,
+    libraryBriefs,
+    libraryProjects,
+    libraryPresets,
+    libraryReports,
+    librarySearchPlaceholder,
+    projectCount: libraryProjectCount,
+    visibleLibraryItemCount,
+  } = useLibraryCollections({
+    briefs,
+    historySearch,
+    isProMode,
+    projects,
+    savedChannelPresets,
+    savedChannelReports,
+    buildSavedPresetMeta,
+    buildSavedReportMeta,
   });
-  const filteredChannelPresets = savedChannelPresets.filter((preset) => {
-    const needle = historySearch.trim().toLowerCase();
-    if (!needle) return true;
-    return preset.name.toLowerCase().includes(needle)
-      || preset.channelUrl.toLowerCase().includes(needle)
-      || preset.compareChannelUrl.toLowerCase().includes(needle);
-  });
-  const selectedChannelVideoIdSet = new Set(selectedChannelVideoIds);
-  const selectedChannelVideos = channelVideos.filter((video) => selectedChannelVideoIdSet.has(video.videoId));
-  const selectedCompareVideoIdSet = new Set(selectedCompareVideoIds);
-  const selectedCompareVideos = compareChannelVideos.filter((video) => selectedCompareVideoIdSet.has(video.videoId));
-  const visibleLibraryItemCount = filteredBriefs.length + (isProMode ? filteredChannelReports.length + filteredChannelPresets.length : 0);
-  const librarySearchPlaceholder = isProMode
-    ? "Search briefs, channels, URLs, or compare reports"
-    : "Search saved briefs or URLs";
+  const projectCount = projects.length || libraryProjectCount;
+  const pageTitle = activeView === "home"
+    ? "Home"
+    : activeView === "studio"
+      ? "Video Intel"
+    : activeView === "channel"
+      ? "Channel Lab"
+      : activeView === "compare"
+      ? "Channel Compare"
+        : activeView === "analytics"
+          ? "Studio Analytics"
+          : activeView === "projects"
+            ? "Projects"
+        : activeView === "exports"
+          ? "Exports"
+          : activeView === "settings"
+            ? "Settings"
+        : "Library";
+  const pageDescription = activeView === "home"
+    ? "Launch work fast, jump back into saved research, and keep the product organized by department."
+    : APP_VIEW_DESCRIPTIONS[activeView];
+  const shellTitle = activeView === "home"
+    ? "A creator intelligence workspace, not a single tool"
+    : activeView === "studio"
+      ? workspaceMode === "batch"
+        ? "Batch workflow, without the clutter"
+        : "Fast insight from one video"
+      : activeView === "channel"
+        ? "Channel research now has its own command center"
+        : activeView === "compare"
+          ? "Compare results now live in their own review space"
+          : activeView === "analytics"
+            ? "Studio metrics now live in a dedicated review space"
+            : activeView === "projects"
+              ? "Saved work now has a dedicated project hub"
+          : activeView === "exports"
+            ? "Deliverables now have their own handoff space"
+            : activeView === "settings"
+              ? "Workspace defaults are no longer buried in the workflow"
+        : "Saved work, separate from live analysis";
 
   useEffect(() => {
     if (plannerChannelFilter === "all") return;
@@ -748,10 +1536,10 @@ export default function App() {
   }, [analysis.contentCalendar, plannerChannelFilter]);
 
   useEffect(() => {
-    if (channelDeepDive) {
+    if (cloneChannel) {
       setChannelResultTab("overview");
     }
-  }, [channelDeepDive]);
+  }, [cloneChannel]);
 
   useEffect(() => {
     if (channelCompare) {
@@ -777,6 +1565,7 @@ export default function App() {
     if (!canGenerate) return showStatus("Paste More Transcript Text", "error");
     showStatus("Generating From Text", "busy");
     setInsightTab("summary");
+    setViSection("summary");
     setAnswer("");
     regenerate();
     window.setTimeout(() => {
@@ -789,11 +1578,39 @@ export default function App() {
   }
 
   function handleSelectView(view: AppView) {
+    if (view === "home") {
+      setActiveView("home");
+      showStatus("Home Ready", "success");
+      return;
+    }
+
     if (view === "channel") {
       setExperienceMode("pro");
       setWorkspaceMode("channel");
       setActiveView("channel");
       showStatus("Channel Lab Ready", "success");
+      return;
+    }
+
+    if (view === "compare") {
+      setExperienceMode("pro");
+      setWorkspaceMode("channel");
+      setActiveView("compare");
+      showStatus("Channel Compare Ready", "success");
+      return;
+    }
+
+    if (view === "analytics") {
+      setExperienceMode("pro");
+      setWorkspaceMode("channel");
+      setActiveView("analytics");
+      showStatus("Studio Analytics Ready", "success");
+      return;
+    }
+
+    if (view === "projects") {
+      setActiveView("projects");
+      showStatus("Projects Ready", "success");
       return;
     }
 
@@ -804,106 +1621,331 @@ export default function App() {
       return;
     }
 
+    if (view === "exports") {
+      setActiveView("exports");
+      showStatus("Exports Ready", "success");
+      return;
+    }
+
+    if (view === "settings") {
+      setActiveView("settings");
+      showStatus("Settings Ready", "success");
+      return;
+    }
+
     setActiveView("library");
     showStatus("Library Ready", "success");
   }
 
-  function updateChannelSelection(nextIds: string[]) {
-    const allowedIds = new Set(channelVideos.map((video) => video.videoId));
-    const uniqueIds = nextIds.filter((videoId, index) => allowedIds.has(videoId) && nextIds.indexOf(videoId) === index);
-    setSelectedChannelVideoIds(uniqueIds);
-    setChannelDeepDive(null);
-    setChannelCompare(null);
+  function handleCommandSearchSubmit() {
+    const normalized = commandSearch.trim();
+    if (!normalized) return;
+    setHistorySearch(normalized);
+    setActiveView("library");
+    showStatus("Searching Library", "success");
+  }
+
+  function handleGoHome() {
+    setHistorySearch("");
+    setCommandSearch("");
+    setActiveView("home");
+    showStatus("Home Ready", "success");
+  }
+
+  function handleLoadWorkspaceProject(project: SavedWorkspaceProject) {
+    setCurrentWorkspaceProjectId(project.id);
+    setExperienceMode(project.experienceMode);
+    setActiveView(project.activeView);
+    setWorkspaceMode(project.workspaceMode);
+    setInsightTab(project.insightTab);
+    setViSection(project.activeView === "studio" ? project.insightTab : "input");
+    setChannelResultTab(project.channelResultTab);
+    setCompareResultTab(project.compareResultTab);
+    setCompareSection(compareResultTabToSection(project.compareResultTab));
+    setVideoTitle(project.videoTitle);
+    setVideoUrl(project.videoUrl);
+    setTranscriptLanguage(project.transcriptLanguage);
+    setTranscript(project.transcript);
+    setSummaryStyle(project.summaryStyle);
+    setAudiencePreset(project.audiencePreset);
+    setOutputLanguage(project.outputLanguage);
+    setCopyFormat(project.copyFormat);
+    setExportFormat(project.exportFormat);
+    setCleaner(project.cleaner);
+    setAnalysis(project.analysis);
+    setActiveBriefId(project.activeBriefId);
+    setTranscriptSource(project.transcriptSource);
+    setBatchInput(project.batchInput);
+    setBatchResults(project.batchResults);
+    setChannelUrl(project.channelUrl);
+    setMyChannelUrl(project.myChannelUrl);
+    setCompareChannelUrl(project.compareChannelUrl);
+    setBenchmarkChannelUrl(project.benchmarkChannelUrl);
+    setChannelSampleSize(project.channelSampleSize);
+    setCompareSampleSize(project.compareSampleSize);
+    setBenchmarkSampleSize(project.benchmarkSampleSize);
+    setCloneNiche(project.cloneNiche);
+    setCloneStage(project.cloneStage);
+    setClonePresentationStyle(project.clonePresentationStyle);
+    setCloneGoal(project.cloneGoal);
+    setChannelVideos(project.channelVideos);
+    setSelectedChannelVideoIds(project.selectedChannelVideoIds);
+    setCompareChannelVideos(project.compareChannelVideos);
+    setSelectedCompareVideoIds(project.selectedCompareVideoIds);
+    setBenchmarkChannelVideos(project.benchmarkChannelVideos);
+    setSelectedBenchmarkVideoIds(project.selectedBenchmarkVideoIds);
+    setMainStudioImport(project.mainStudioImport);
+    setCompareStudioImport(project.compareStudioImport);
+    setBenchmarkStudioImport(project.benchmarkStudioImport);
+    setChannelDeepDive(project.channelDeepDive);
+    setCloneChannel(project.cloneChannel);
+    setChannelCompare(project.channelCompare);
+    setMyChannelDeepDive(project.myChannelDeepDive);
+    setMyChannelVideos(project.myChannelVideos);
+    setChannelPresetName(project.channelPresetName);
+    setHistorySearch(project.historySearch);
+    setCommandSearch(project.commandSearch);
+    setQuestion(project.question);
+    setAnswer(project.answer);
+    setTimestampSearch(project.timestampSearch);
+    setProClipScoreFloor(project.proClipScoreFloor);
+    setPlannerChannelFilter(project.plannerChannelFilter);
+    setStatusState(project.statusState);
+    showStatus(`Workspace Loaded: ${project.title}`, "success");
+  }
+
+  function handleLoadProject(projectId: string) {
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+
+    if (project.kind === "brief") {
+      const brief = briefs.find((item) => item.id === project.id);
+      if (brief) handleLoadBrief(brief);
+      return;
+    }
+
+    if (project.kind === "channel-report") {
+      const report = savedChannelReports.find((item) => item.id === project.id);
+      if (report) handleLoadSavedChannelReport(report);
+      return;
+    }
+
+    if (project.kind === "workspace") {
+      const workspace = workspaceProjects.find((item) => item.id === project.id);
+      if (workspace) handleLoadWorkspaceProject(workspace);
+      return;
+    }
+
+    const preset = savedChannelPresets.find((item) => item.id === project.id);
+    if (preset) handleLoadChannelPreset(preset);
+  }
+
+  function handleDeleteProject(projectId: string) {
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+
+    if (project.kind === "brief") {
+      setBriefs((current) => current.filter((item) => item.id !== projectId));
+      if (activeBriefId === projectId) setActiveBriefId(null);
+      showStatus("Project Deleted", "success");
+      return;
+    }
+
+    if (project.kind === "channel-report") {
+      setSavedChannelReports((current) => current.filter((item) => item.id !== projectId));
+      showStatus("Project Deleted", "success");
+      return;
+    }
+
+    if (project.kind === "channel-preset") {
+      setSavedChannelPresets((current) => current.filter((item) => item.id !== projectId));
+      showStatus("Project Deleted", "success");
+      return;
+    }
+
+    if (projectId === currentWorkspaceProjectId) {
+      setCurrentWorkspaceProjectId(null);
+    }
+    setWorkspaceProjects((current) => current.filter((item) => item.id !== projectId));
+    showStatus("Workspace Deleted", "success");
+  }
+
+  function handleRenameProject(projectId: string) {
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+
+    const suggestedName = project.title.trim();
+    const nextTitle = window.prompt("Rename project", suggestedName)?.trim();
+    if (!nextTitle || nextTitle === suggestedName) return;
+
+    if (project.kind === "brief") {
+      setBriefs((current) => current.map((item) => item.id === projectId ? { ...item, title: nextTitle } : item));
+      showStatus("Project Renamed", "success");
+      return;
+    }
+
+    if (project.kind === "channel-report") {
+      setSavedChannelReports((current) => current.map((item) => item.id === projectId ? { ...item, title: nextTitle } : item));
+      showStatus("Project Renamed", "success");
+      return;
+    }
+
+    if (project.kind === "channel-preset") {
+      setSavedChannelPresets((current) => current.map((item) => item.id === projectId ? { ...item, name: nextTitle } : item));
+      showStatus("Project Renamed", "success");
+      return;
+    }
+
+    setWorkspaceProjects((current) => current.map((item) => item.id === projectId ? { ...item, title: nextTitle, updatedAt: new Date().toISOString() } : item));
+    showStatus("Workspace Renamed", "success");
+  }
+
+  function handleLoadBrief(brief: SavedBrief) {
+    setCurrentWorkspaceProjectId(null);
+    setActiveView("studio");
+    setWorkspaceMode("single");
+    setVideoTitle(brief.title);
+    setVideoUrl(brief.url);
+    setTranscript(brief.transcript);
+    setAnalysis(brief.analysis);
+    setSummaryStyle(brief.summaryStyle);
+    setAudiencePreset(brief.audiencePreset);
+    setOutputLanguage(brief.outputLanguage);
+    setActiveBriefId(brief.id);
+    showStatus("Brief Loaded", "success");
+  }
+
+  function handleLoadStudioSample() {
+    setVideoTitle(SAMPLE_TITLE);
+    setVideoUrl(SAMPLE_URL);
+    setTranscript(SAMPLE_TRANSCRIPT);
+    setTranscriptLanguage("");
+    setTranscriptSource(null);
+    setAnswer("");
+    showStatus("Sample Loaded", "success");
+  }
+
+  function handleClearStudioWorkspace() {
+    setVideoTitle("");
+    setVideoUrl("");
+    setTranscript("");
+    setTranscriptLanguage("");
+    setTranscriptSource(null);
+    setAnswer("");
+    setAnalysis(buildAnalysis({ title: "", url: "", transcript: "", summaryStyle, audiencePreset, outputLanguage, cleaner }));
+    setStatusState(READY_STATUS);
+  }
+
+  function handleLoadBatchResult(itemId: string) {
+    const item = batchResults.find((entry) => entry.id === itemId);
+    if (!item?.analysis || !item.transcript) return;
+    setActiveView("studio");
+    setWorkspaceMode("single");
+    setVideoTitle(item.title);
+    setVideoUrl(item.url);
+    setTranscript(item.transcript);
+    setAnalysis(item.analysis);
+    showStatus("Batch Loaded", "success");
+  }
+
+  function handleAskTranscript() {
+    setAnswer(buildQuestionAnswer(question, analysis));
+    showStatus("Answered", "success");
   }
 
   function handleToggleChannelVideo(videoId: string) {
-    updateChannelSelection(selectedChannelVideoIdSet.has(videoId)
-      ? selectedChannelVideoIds.filter((id) => id !== videoId)
-      : [...selectedChannelVideoIds, videoId]);
+    toggleChannelVideo(videoId);
   }
 
   function handleSelectAllChannelVideos() {
-    updateChannelSelection(channelVideos.map((video) => video.videoId));
+    selectAllChannelVideos();
     showStatus("All Loaded Videos Selected", "success");
   }
 
   function handleSelectTopChannelVideos(count: number) {
-    const nextIds = channelVideos.slice(0, count).map((video) => video.videoId);
-    updateChannelSelection(nextIds);
-    showStatus(`${nextIds.length} Videos Selected`, "success");
+    showStatus(`${selectTopChannelVideos(count)} Videos Selected`, "success");
   }
 
   function handleClearChannelSelection() {
-    updateChannelSelection([]);
+    clearChannelSelection();
     showStatus("Channel Selection Cleared", "success");
   }
 
-  function updateCompareSelection(nextIds: string[]) {
-    const allowedIds = new Set(compareChannelVideos.map((video) => video.videoId));
-    const uniqueIds = nextIds.filter((videoId, index) => allowedIds.has(videoId) && nextIds.indexOf(videoId) === index);
-    setSelectedCompareVideoIds(uniqueIds);
-    setChannelCompare(null);
-  }
-
   function handleToggleCompareVideo(videoId: string) {
-    updateCompareSelection(selectedCompareVideoIdSet.has(videoId)
-      ? selectedCompareVideoIds.filter((id) => id !== videoId)
-      : [...selectedCompareVideoIds, videoId]);
+    toggleCompareVideo(videoId);
   }
 
   function handleSelectAllCompareVideos() {
-    updateCompareSelection(compareChannelVideos.map((video) => video.videoId));
+    selectAllCompareVideos();
     showStatus("All Compare Videos Selected", "success");
   }
 
   function handleSelectTopCompareVideos(count: number) {
-    const nextIds = compareChannelVideos.slice(0, count).map((video) => video.videoId);
-    updateCompareSelection(nextIds);
-    showStatus(`${nextIds.length} Compare Videos Selected`, "success");
+    showStatus(`${selectTopCompareVideos(count)} Compare Videos Selected`, "success");
   }
 
   function handleClearCompareSelection() {
-    updateCompareSelection([]);
+    clearCompareSelection();
     showStatus("Compare Selection Cleared", "success");
+  }
+
+  function handleToggleBenchmarkVideo(videoId: string) {
+    toggleBenchmarkVideo(videoId);
+  }
+
+  function handleSelectAllBenchmarkVideos() {
+    selectAllBenchmarkVideos();
+    showStatus("All Benchmark Videos Selected", "success");
+  }
+
+  function handleSelectTopBenchmarkVideos(count: number) {
+    showStatus(`${selectTopBenchmarkVideos(count)} Benchmark Videos Selected`, "success");
+  }
+
+  function handleClearBenchmarkSelection() {
+    clearBenchmarkSelection();
+    showStatus("Benchmark Selection Cleared", "success");
   }
 
   function persistChannelReport(report: SavedChannelReport) {
     setSavedChannelReports((current) => [report, ...current.filter((item) => item.id !== report.id)].slice(0, MAX_CHANNEL_REPORTS));
   }
 
-  function buildSavedChannelReport(kind: SavedChannelReport["kind"], deepDive: ChannelDeepDiveBundle, compare: ChannelCompareBundle | null): SavedChannelReport {
+  function buildSavedChannelReport(kind: SavedChannelReport["kind"], deepDive: ChannelDeepDiveBundle, clone: CloneChannelBundle | null, compare: ChannelCompareBundle | null): SavedChannelReport {
     return {
       id: `channel-report-${Date.now()}`,
       kind,
-      title: kind === "compare" && compare ? `${compare.primaryLabel} vs ${compare.competitorLabel}` : `${deepDive.channelLabel} Deep Dive`,
+      title: kind === "compare" && compare ? `${compare.primaryLabel} vs ${compare.competitorLabel}` : `${deepDive.channelLabel} Clone Plan`,
       createdAt: new Date().toISOString(),
       channelUrl: channelUrl.trim(),
+      myChannelUrl: myChannelUrl.trim(),
       compareChannelUrl: compareChannelUrl.trim(),
+      benchmarkChannelUrl: benchmarkChannelUrl.trim(),
       channelSampleSize,
       compareSampleSize,
+      benchmarkSampleSize,
+      cloneNiche,
+      cloneStage,
+      clonePresentationStyle,
+      cloneGoal,
       channelVideos,
       selectedChannelVideoIds,
       compareChannelVideos,
       selectedCompareVideoIds,
+      benchmarkChannelVideos,
+      selectedBenchmarkVideoIds,
       deepDive,
+      clone,
       compare,
     };
   }
 
   function handleLoadSavedChannelReport(report: SavedChannelReport) {
+    setCurrentWorkspaceProjectId(null);
     setExperienceMode("pro");
     setActiveView("channel");
     setWorkspaceMode("channel");
-    setChannelUrl(report.channelUrl);
-    setCompareChannelUrl(report.compareChannelUrl);
-    setChannelSampleSize(report.channelSampleSize);
-    setCompareSampleSize(report.compareSampleSize);
-    setChannelVideos(report.channelVideos);
-    setSelectedChannelVideoIds(report.selectedChannelVideoIds);
-    setCompareChannelVideos(report.compareChannelVideos);
-    setSelectedCompareVideoIds(report.selectedCompareVideoIds);
-    setChannelDeepDive(report.deepDive);
-    setChannelCompare(report.compare);
+    applySavedReport(report, (deepDive) => buildCloneChannel({ target: deepDive }));
     showStatus(report.kind === "compare" ? "Compare Report Loaded" : "Channel Report Loaded", "success");
   }
 
@@ -919,32 +1961,35 @@ export default function App() {
       name,
       createdAt: new Date().toISOString(),
       channelUrl: channelUrl.trim(),
+      myChannelUrl: myChannelUrl.trim(),
       compareChannelUrl: compareChannelUrl.trim(),
+      benchmarkChannelUrl: benchmarkChannelUrl.trim(),
       channelSampleSize,
       compareSampleSize,
+      benchmarkSampleSize,
+      cloneNiche,
+      cloneStage,
+      clonePresentationStyle,
+      cloneGoal,
       channelVideos,
       selectedChannelVideoIds,
       compareChannelVideos,
       selectedCompareVideoIds,
+      benchmarkChannelVideos,
+      selectedBenchmarkVideoIds,
     });
     setChannelPresetName("");
+    setChannelPresetStatusMessage(`Saved preset "${name}" with ${selectedChannelVideoIds.length}/${channelVideos.length} main, ${selectedCompareVideoIds.length}/${compareChannelVideos.length} compare, and ${selectedBenchmarkVideoIds.length}/${benchmarkChannelVideos.length} benchmark selections.`);
     showStatus(`Preset Saved: ${name}`, "success");
   }
 
   function handleLoadChannelPreset(preset: SavedChannelPreset) {
+    setCurrentWorkspaceProjectId(null);
     setExperienceMode("pro");
     setActiveView("channel");
     setWorkspaceMode("channel");
-    setChannelUrl(preset.channelUrl);
-    setCompareChannelUrl(preset.compareChannelUrl);
-    setChannelSampleSize(preset.channelSampleSize);
-    setCompareSampleSize(preset.compareSampleSize);
-    setChannelVideos(preset.channelVideos);
-    setSelectedChannelVideoIds(preset.selectedChannelVideoIds);
-    setCompareChannelVideos(preset.compareChannelVideos);
-    setSelectedCompareVideoIds(preset.selectedCompareVideoIds);
-    setChannelDeepDive(null);
-    setChannelCompare(null);
+    applySavedPreset(preset);
+    setChannelPresetStatusMessage(`Loaded preset "${preset.name}" with ${preset.selectedChannelVideoIds.length}/${preset.channelVideos.length} main, ${preset.selectedCompareVideoIds.length}/${preset.compareChannelVideos.length} compare, and ${preset.selectedBenchmarkVideoIds.length}/${preset.benchmarkChannelVideos.length} benchmark selections.`);
     showStatus(`Preset Loaded: ${preset.name}`, "success");
   }
 
@@ -963,6 +2008,7 @@ export default function App() {
   function handleProQuickExport(nextFormat: CopyFormat) {
     setCopyFormat(nextFormat);
     setInsightTab("exports");
+    setViSection("exports");
     const label = COPY_FORMAT_OPTIONS.find((option) => option.value === nextFormat)?.label ?? "Export";
     showStatus(`${label} Preview Ready`, "success");
   }
@@ -1081,8 +2127,11 @@ export default function App() {
     try {
       const videos = await window.desktopRuntime.fetchYoutubeChannelVideos(channelUrl.trim(), channelSampleSize);
       setChannelVideos(videos);
+      setMainStudioImport(null);
       setSelectedChannelVideoIds(videos.map((video) => video.videoId));
       setChannelDeepDive(null);
+      setMyChannelDeepDive(null);
+      setCloneChannel(null);
       setChannelCompare(null);
       showStatus(`Channel Loaded (${videos.length} Videos)`, "success");
     } catch (error) {
@@ -1100,11 +2149,80 @@ export default function App() {
     try {
       const videos = await window.desktopRuntime.fetchYoutubeChannelVideos(compareChannelUrl.trim(), compareSampleSize);
       setCompareChannelVideos(videos);
+      setCompareStudioImport(null);
       setSelectedCompareVideoIds(videos.map((video) => video.videoId));
       setChannelCompare(null);
       showStatus(`Compare Channel Loaded (${videos.length} Videos)`, "success");
     } catch (error) {
       showStatus(error instanceof Error ? error.message : "Compare Channel Failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleLoadBenchmarkChannelVideos() {
+    if (!canFetchChannel) return showStatus("Channel Unavailable", "error");
+    if (!benchmarkChannelUrl.trim()) return showStatus("Paste A Benchmark Channel URL", "error");
+    setBusy(true);
+    showStatus("Loading Benchmark Channel", "busy");
+    try {
+      const videos = await window.desktopRuntime.fetchYoutubeChannelVideos(benchmarkChannelUrl.trim(), benchmarkSampleSize);
+      setBenchmarkChannelVideos(videos);
+      setBenchmarkStudioImport(null);
+      setSelectedBenchmarkVideoIds(videos.map((video) => video.videoId));
+      setChannelCompare(null);
+      showStatus(`Benchmark Channel Loaded (${videos.length} Videos)`, "success");
+    } catch (error) {
+      showStatus(error instanceof Error ? error.message : "Benchmark Channel Failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleImportStudioAnalytics(target: "main" | "compare" | "benchmark") {
+    if (!canImportAnalytics) return showStatus("Studio Import Unavailable", "error");
+    const targetVideos = target === "main"
+      ? channelVideos
+      : target === "compare"
+        ? compareChannelVideos
+        : benchmarkChannelVideos;
+    if (targetVideos.length === 0) return showStatus(target === "main" ? "Load Main Channel First" : target === "compare" ? "Load Compare Channel First" : "Load Benchmark Channel First", "error");
+    setBusy(true);
+    showStatus(`Importing ${target === "main" ? "Main" : target === "compare" ? "Compare" : "Benchmark"} Studio CSV`, "busy");
+    try {
+      const result = await window.desktopRuntime.importAnalyticsFile();
+      if (result.canceled) {
+        showStatus("Studio Import Cancelled", "ready");
+        return;
+      }
+
+      const importResult = mergeStudioCsvIntoVideos(targetVideos, result.fileName, result.content);
+      if (importResult.summary.kind === "unknown" || importResult.summary.rowCount === 0) {
+        showStatus("Could Not Read That Studio CSV", "error");
+        return;
+      }
+
+      if (target === "main") {
+        setChannelVideos(importResult.videos);
+        setMainStudioImport(importResult.summary);
+      } else if (target === "compare") {
+        setCompareChannelVideos(importResult.videos);
+        setCompareStudioImport(importResult.summary);
+      } else {
+        setBenchmarkChannelVideos(importResult.videos);
+        setBenchmarkStudioImport(importResult.summary);
+      }
+
+      setChannelDeepDive(null);
+      setMyChannelDeepDive(null);
+      setCloneChannel(null);
+      setChannelCompare(null);
+      showStatus(
+        `${target === "main" ? "Main" : target === "compare" ? "Compare" : "Benchmark"} Studio Imported (${importResult.summary.matchedCount} matched${importResult.summary.unmatchedCount > 0 ? `, ${importResult.summary.unmatchedCount} unmatched` : ""})`,
+        "success",
+      );
+    } catch (error) {
+      showStatus(error instanceof Error ? error.message : "Studio Import Failed", "error");
     } finally {
       setBusy(false);
     }
@@ -1131,11 +2249,16 @@ export default function App() {
           description: metadataResult.status === "fulfilled" ? metadataResult.value.description : video.description ?? "",
           thumbnailUrl: metadataResult.status === "fulfilled" ? metadataResult.value.thumbnailUrl : video.thumbnailUrl ?? "",
           thumbnailText: metadataResult.status === "fulfilled" ? metadataResult.value.thumbnailText : video.thumbnailText ?? "",
+          commentCountLabel: metadataResult.status === "fulfilled" ? metadataResult.value.commentCountLabel : video.commentCountLabel ?? "",
+          topComments: metadataResult.status === "fulfilled" ? metadataResult.value.topComments : video.topComments ?? [],
+          studioMetrics: video.studioMetrics,
         };
       } catch {
         return {
           ...video,
           transcript: "",
+          topComments: video.topComments ?? [],
+          studioMetrics: video.studioMetrics,
         };
       }
     }));
@@ -1146,9 +2269,15 @@ export default function App() {
     if (channelVideos.length === 0) return showStatus("Load Channel Videos First", "error");
     if (selectedChannelVideos.length === 0) return showStatus("Select At Least One Channel Video", "error");
     setBusy(true);
-    showStatus("Building Deep Dive", "busy");
+    showStatus("Building Clone Plan", "busy");
     try {
       const enrichedVideos = await enrichChannelVideos(selectedChannelVideos);
+      const nextMyChannelVideos = myChannelUrl.trim() && canFetchChannel
+        ? await window.desktopRuntime.fetchYoutubeChannelVideos(myChannelUrl.trim(), channelSampleSize)
+        : [];
+      const enrichedMyChannelVideos = nextMyChannelVideos.length > 0
+        ? await enrichChannelVideos(nextMyChannelVideos)
+        : [];
       const deepDive = buildChannelDeepDive({
         channelUrl: channelUrl.trim(),
         videos: enrichedVideos,
@@ -1157,12 +2286,40 @@ export default function App() {
         audiencePreset,
         outputLanguage,
         cleaner,
+        cloneContext: {
+          niche: cloneNiche,
+          channelStage: cloneStage,
+          presentationStyle: clonePresentationStyle,
+          goal: cloneGoal,
+        },
+      });
+      const nextMyChannelDeepDive = enrichedMyChannelVideos.length > 0 ? buildChannelDeepDive({
+        channelUrl: myChannelUrl.trim(),
+        videos: enrichedMyChannelVideos,
+        sourceVideoCount: nextMyChannelVideos.length,
+        summaryStyle,
+        audiencePreset,
+        outputLanguage,
+        cleaner,
+        cloneContext: {
+          niche: cloneNiche,
+          channelStage: cloneStage,
+          presentationStyle: clonePresentationStyle,
+          goal: cloneGoal,
+        },
+      }) : null;
+      const clonePlan = buildCloneChannel({
+        target: deepDive,
+        myChannel: nextMyChannelDeepDive,
       });
       setChannelDeepDive(deepDive);
-      persistChannelReport(buildSavedChannelReport("deep-dive", deepDive, null));
-      showStatus("Deep Dive Ready", "success");
+      setMyChannelVideos(nextMyChannelVideos);
+      setMyChannelDeepDive(nextMyChannelDeepDive);
+      setCloneChannel(clonePlan);
+      persistChannelReport(buildSavedChannelReport("deep-dive", deepDive, clonePlan, null));
+      showStatus("Clone Plan Ready", "success");
     } catch (error) {
-      showStatus(error instanceof Error ? error.message : "Deep Dive Failed", "error");
+      showStatus(error instanceof Error ? error.message : "Clone Plan Failed", "error");
     } finally {
       setBusy(false);
     }
@@ -1178,9 +2335,11 @@ export default function App() {
     setBusy(true);
     showStatus("Comparing Channels", "busy");
     try {
-      const [primaryVideos, competitorVideos] = await Promise.all([
+      const benchmarkEnabled = benchmarkChannelVideos.length > 0 && selectedBenchmarkVideos.length > 0;
+      const [primaryVideos, competitorVideos, benchmarkVideos] = await Promise.all([
         enrichChannelVideos(selectedChannelVideos),
         enrichChannelVideos(selectedCompareVideos),
+        benchmarkEnabled ? enrichChannelVideos(selectedBenchmarkVideos) : Promise.resolve([]),
       ]);
       const primaryDeepDive = buildChannelDeepDive({
         channelUrl: channelUrl.trim(),
@@ -1190,23 +2349,54 @@ export default function App() {
         audiencePreset,
         outputLanguage,
         cleaner,
+        cloneContext: {
+          niche: cloneNiche,
+          channelStage: cloneStage,
+          presentationStyle: clonePresentationStyle,
+          goal: cloneGoal,
+        },
       });
       const competitorDeepDive = buildChannelDeepDive({
         channelUrl: compareChannelUrl.trim(),
         videos: competitorVideos,
-        sourceVideoCount: competitorVideos.length,
+        sourceVideoCount: compareChannelVideos.length,
         summaryStyle,
         audiencePreset,
         outputLanguage,
         cleaner,
+        cloneContext: {
+          niche: cloneNiche,
+          channelStage: cloneStage,
+          presentationStyle: clonePresentationStyle,
+          goal: cloneGoal,
+        },
       });
+      const benchmarkDeepDive = benchmarkEnabled ? buildChannelDeepDive({
+        channelUrl: benchmarkChannelUrl.trim(),
+        videos: benchmarkVideos,
+        sourceVideoCount: benchmarkChannelVideos.length,
+        summaryStyle,
+        audiencePreset,
+        outputLanguage,
+        cleaner,
+        cloneContext: {
+          niche: cloneNiche,
+          channelStage: cloneStage,
+          presentationStyle: clonePresentationStyle,
+          goal: cloneGoal,
+        },
+      }) : null;
       const compareBundle = buildChannelCompare({
         primary: primaryDeepDive,
         competitor: competitorDeepDive,
+        benchmarks: benchmarkDeepDive ? [benchmarkDeepDive] : [],
       });
+      const clonePlan = buildCloneChannel({ target: primaryDeepDive });
       setChannelDeepDive(primaryDeepDive);
+      setCloneChannel(clonePlan);
+      setMyChannelDeepDive(null);
       setChannelCompare(compareBundle);
-      persistChannelReport(buildSavedChannelReport("compare", primaryDeepDive, compareBundle));
+      persistChannelReport(buildSavedChannelReport("compare", primaryDeepDive, clonePlan, compareBundle));
       showStatus("Channel Compare Ready", "success");
     } catch (error) {
       showStatus(error instanceof Error ? error.message : "Channel Compare Failed", "error");
@@ -1216,41 +2406,41 @@ export default function App() {
   }
 
   async function handleCopyChannelDeepDive() {
-    if (!channelDeepDive) return showStatus("Run Channel Deep Dive First", "error");
+    if (!cloneChannel || !channelDeepDive) return showStatus("Build My Clone Plan First", "error");
     try {
-      await navigator.clipboard.writeText(channelDeepDive.exportDeck);
-      showStatus("Channel Report Copied", "success");
+      await navigator.clipboard.writeText(cloneChannel.exportDeck);
+      showStatus("Clone Plan Copied", "success");
     } catch {
       showStatus("Copy Failed", "error");
     }
   }
 
   async function handleExportChannelDeepDive() {
-    if (!channelDeepDive) return showStatus("Run Channel Deep Dive First", "error");
+    if (!cloneChannel || !channelDeepDive) return showStatus("Build My Clone Plan First", "error");
     if (!canExportFile) return handleCopyChannelDeepDive();
     try {
       const result = await window.desktopRuntime.saveExportFile({
-        suggestedName: `${channelDeepDive.channelLabel || "channel"}-deep-dive`,
+        suggestedName: `${channelDeepDive.channelLabel || "channel"}-clone-plan`,
         extension: "md",
-        content: channelDeepDive.exportDeck,
+        content: cloneChannel.exportDeck,
       });
-      showStatus(result.canceled ? "Export Cancelled" : "Channel Report Exported", result.canceled ? "ready" : "success");
+      showStatus(result.canceled ? "Export Cancelled" : "Clone Plan Exported", result.canceled ? "ready" : "success");
     } catch (error) {
       showStatus(error instanceof Error ? error.message : "Export Failed", "error");
     }
   }
 
   async function handleExportChannelDeepDivePdf() {
-    if (!channelDeepDive) return showStatus("Run Channel Deep Dive First", "error");
+    if (!cloneChannel || !channelDeepDive) return showStatus("Build My Clone Plan First", "error");
     if (!canExportPdf) return handleExportChannelDeepDive();
     try {
       const result = await window.desktopRuntime.savePdfFile({
-        suggestedName: `${channelDeepDive.channelLabel || "channel"}-deep-dive`,
+        suggestedName: `${channelDeepDive.channelLabel || "channel"}-clone-plan`,
         html: buildReportPdfHtml({
-          title: `${channelDeepDive.channelLabel} Channel Deep Dive`,
-          label: "Deep Dive PDF",
-          subtitle: `${channelDeepDive.analyzedVideos} selected videos, ${channelDeepDive.transcriptCoverage}% transcript coverage, average visible views ${formatMetricCount(channelDeepDive.averageViewCount)}, and a premium strategy deck.`,
-          deck: channelDeepDive.exportDeck,
+          title: `${channelDeepDive.channelLabel} Clone Channel Plan`,
+          label: "Clone Plan PDF",
+          subtitle: `${channelDeepDive.analyzedVideos} selected videos, ${channelDeepDive.transcriptCoverage}% transcript coverage, average visible views ${formatMetricCount(channelDeepDive.averageViewCount)}, and a clone-first strategy plan.`,
+          deck: cloneChannel.exportDeck,
           generatedAt: formatCreatedAt(new Date().toISOString()),
           stats: [
             { label: "Selected Videos", value: `${channelDeepDive.analyzedVideos}` },
@@ -1259,7 +2449,7 @@ export default function App() {
           ],
         }),
       });
-      showStatus(result.canceled ? "PDF Export Cancelled" : "Channel PDF Exported", result.canceled ? "ready" : "success");
+      showStatus(result.canceled ? "PDF Export Cancelled" : "Clone Plan PDF Exported", result.canceled ? "ready" : "success");
     } catch (error) {
       showStatus(error instanceof Error ? error.message : "PDF Export Failed", "error");
     }
@@ -1315,842 +2505,945 @@ export default function App() {
     }
   }
 
-  const shellTitle = activeView === "studio"
-    ? workspaceMode === "batch"
-      ? "Batch workflow, without the clutter"
-      : "Fast insight from one video"
-    : activeView === "channel"
-      ? "Channel research now has its own command center"
-      : "Saved work, separate from live analysis";
+  const showAnalyzePanel = activeView === "channel";
+  const currentChannelLabel = channelDeepDive?.channelLabel || channelUrl.trim() || "Channel Clone";
+  const currentVideoCount = selectedChannelVideos.length > 0 ? selectedChannelVideos.length : channelVideos.length;
+  const currentTranscriptCoverage = channelDeepDive?.transcriptCoverage ?? null;
+  const breadcrumbToolName = TOOL_BREADCRUMB_LABELS[activeView];
+  const isHomeNavActive = activeView !== "library" && activeView !== "exports" && activeView !== "settings";
+  const isLibraryNavActive = activeView === "library";
+  const isExportNavActive = activeView === "exports";
+  const isSettingsNavActive = activeView === "settings";
+  const canSaveCurrentView = (activeView === "channel" && Boolean(channelDeepDive && cloneChannel))
+    || (activeView === "compare" && Boolean(channelDeepDive && channelCompare))
+    || activeView === "studio";
+  const canExportCurrentView = (activeView === "channel" && Boolean(channelDeepDive && cloneChannel))
+    || (activeView === "compare" && Boolean(channelCompare))
+    || activeView === "exports"
+    || activeView === "studio";
+
+  async function handleTopbarSaveReport() {
+    if (activeView === "studio") {
+      handleSave();
+      return;
+    }
+    if (activeView === "channel" && channelDeepDive && cloneChannel) {
+      persistChannelReport(buildSavedChannelReport("deep-dive", channelDeepDive, cloneChannel, channelCompare));
+      showStatus("Report Saved", "success");
+      return;
+    }
+    if (activeView === "compare" && channelDeepDive && channelCompare) {
+      persistChannelReport(buildSavedChannelReport("compare", channelDeepDive, cloneChannel, channelCompare));
+      showStatus("Compare Report Saved", "success");
+      return;
+    }
+    showStatus("Nothing To Save Yet", "error");
+  }
+
+  async function handleTopbarExport() {
+    if (activeView === "channel" && channelDeepDive && cloneChannel) {
+      await handleExportChannelDeepDive();
+      return;
+    }
+    if (activeView === "compare" && channelCompare) {
+      await handleExportChannelCompare();
+      return;
+    }
+    if (activeView === "studio" || activeView === "exports") {
+      await handleExport();
+      return;
+    }
+    showStatus("Nothing To Export Yet", "error");
+  }
+
+  function renderAnalyzeArrayCard(title: string, items: string[], emptyCopy: string) {
+    return (
+      <article className="cipher-view-card">
+        <div className="cipher-card-title">{title}</div>
+        {items.length > 0 ? (
+          <ul className="plain-list">
+            {items.map((item) => <li key={`${title}-${item}`}>{item}</li>)}
+          </ul>
+        ) : (
+          <p className="empty-copy">{emptyCopy}</p>
+        )}
+      </article>
+    );
+  }
+
+  function renderModeStatCard(metric: ModeMetric) {
+    return (
+      <article key={`${metric.label}-${metric.value}`} className="cipher-stat-card cipher-mode-stat-card">
+        <span className="cipher-stat-label">{metric.label}</span>
+        <strong className="cipher-stat-value">{metric.value}</strong>
+        <span className="cipher-stat-sub">{metric.note}</span>
+      </article>
+    );
+  }
+
+  function renderModeShell(options: {
+    eyebrow: string;
+    title: string;
+    description: string;
+    badges?: string[];
+    metrics: ModeMetric[];
+    body: ReactNode;
+  }) {
+    return (
+      <section className="cipher-mode-shell">
+        <article className="cipher-view-card cipher-mode-hero">
+          <div className="cipher-mode-head">
+            <div className="cipher-mode-copy">
+              <span className="cipher-card-title">{options.eyebrow}</span>
+              <h2 className="cipher-mode-title">{options.title}</h2>
+              <p className="cipher-mode-description">{options.description}</p>
+            </div>
+            <div className={`cipher-status-pill is-${statusTone}`}>
+              <span className="cipher-status-dot" />
+              <span>{status}</span>
+            </div>
+          </div>
+          {options.badges && options.badges.length > 0 ? (
+            <div className="cipher-badge-row">
+              {options.badges.map((badge) => (
+                <span key={`${options.title}-${badge}`} className="cipher-chip">{badge}</span>
+              ))}
+            </div>
+          ) : null}
+        </article>
+        <div className="cipher-stats-grid cipher-mode-grid">
+          {options.metrics.map((metric) => renderModeStatCard(metric))}
+        </div>
+        <div className="cipher-mode-body">
+          {options.body}
+        </div>
+      </section>
+    );
+  }
+
+  function renderAnalyzeSectionShell(section: AnalyzePanelSection, cards: ReactNode) {
+    const meta = ANALYZE_SECTIONS.find((item) => item.id === section) ?? ANALYZE_SECTIONS[0];
+
+    return (
+      <section className="cipher-analyze-grid">
+        <article className="cipher-view-card cipher-analyze-hero">
+          <div className="cipher-card-title">Channel Clone</div>
+          <div className="cipher-analyze-hero-copy">
+            <h2>{meta.label}</h2>
+            <p>{ANALYZE_SECTION_DESCRIPTIONS[section]}</p>
+          </div>
+          <div className="cipher-badge-row">
+            <span className="cipher-chip">{currentVideoCount} videos</span>
+            <span className="cipher-chip">{channelUrl.trim() ? "channel loaded" : "channel pending"}</span>
+            <span className="cipher-chip">{cloneChannel ? "clone brief ready" : "clone brief pending"}</span>
+          </div>
+        </article>
+        {cards}
+      </section>
+    );
+  }
+
+  function renderAnalyzeOverview() {
+    return renderAnalyzeSectionShell("overview", (
+      <>
+        <div className="cipher-stats-grid">
+          <article className="cipher-stat-card">
+            <span className="cipher-stat-label">Sample Size</span>
+            <strong className="cipher-stat-value">{channelDeepDive ? `${channelDeepDive.analyzedVideos}/${channelDeepDive.sourceVideoCount}` : `${currentVideoCount}`}</strong>
+            <span className="cipher-stat-sub">selected / loaded videos</span>
+          </article>
+          <article className="cipher-stat-card">
+            <span className="cipher-stat-label">Transcript Coverage</span>
+            <strong className="cipher-stat-value">{channelDeepDive ? `${channelDeepDive.transcriptCoverage}%` : "Pending"}</strong>
+            <span className="cipher-stat-sub">channel deep dive coverage</span>
+          </article>
+          <article className="cipher-stat-card">
+            <span className="cipher-stat-label">Avg Views</span>
+            <strong className="cipher-stat-value">{channelDeepDive ? formatMetricCount(channelDeepDive.averageViewCount) : "Pending"}</strong>
+            <span className="cipher-stat-sub">visible average per selected upload</span>
+          </article>
+        </div>
+        <article className="cipher-view-card cipher-setup-card">
+          <div className="cipher-card-title">Channel Setup</div>
+          <ChannelCommandWorkspace
+            benchmarkChannelUrl={benchmarkChannelUrl}
+            benchmarkSampleSize={benchmarkSampleSize}
+            benchmarkSampleSizeOptions={CHANNEL_SAMPLE_SIZE_OPTIONS}
+            benchmarkStudioCoverage={benchmarkStudioCoverage}
+            benchmarkStudioImport={benchmarkStudioImport}
+            benchmarkVideos={benchmarkChannelVideos}
+            busy={busy}
+            canFetchChannel={canFetchChannel}
+            canImportAnalytics={canImportAnalytics}
+            channelPresetName={channelPresetName}
+            channelPresetStatusMessage={channelPresetStatusMessage}
+            channelSampleSize={channelSampleSize}
+            channelSampleSizeOptions={CHANNEL_SAMPLE_SIZE_OPTIONS}
+            channelUrl={channelUrl}
+            cloneGoal={cloneGoal}
+            cloneGoalOptions={CLONE_GOAL_OPTIONS}
+            cloneNiche={cloneNiche}
+            clonePresentationOptions={CLONE_PRESENTATION_OPTIONS}
+            clonePresentationStyle={clonePresentationStyle}
+            cloneStage={cloneStage}
+            cloneStageOptions={CLONE_STAGE_OPTIONS}
+            compareChannelUrl={compareChannelUrl}
+            compareSampleSize={compareSampleSize}
+            compareSampleSizeOptions={CHANNEL_SAMPLE_SIZE_OPTIONS}
+            compareStudioCoverage={compareStudioCoverage}
+            compareStudioImport={compareStudioImport}
+            compareVideos={compareChannelVideos}
+            loadedQuotesCount={analysis.quotes.length}
+            mainStudioCoverage={mainStudioCoverage}
+            mainStudioImport={mainStudioImport}
+            myChannelUrl={myChannelUrl}
+            runtimeReady={runtimeReady}
+            savedPresets={channelPresetCards}
+            selectedBenchmarkVideoIds={selectedBenchmarkVideoIds}
+            selectedChannelVideoIds={selectedChannelVideoIds}
+            selectedChannelVideosCount={selectedChannelVideos.length}
+            selectedCompareVideoIds={selectedCompareVideoIds}
+            selectedCompareVideosCount={selectedCompareVideos.length}
+            totalTranscriptLines={analysis.summary.stats.transcriptLines}
+            transcriptWordCount={transcriptWordCount}
+            videos={channelVideos}
+            onBenchmarkChannelUrlChange={handleBenchmarkChannelUrlChange}
+            onBenchmarkSampleSizeChange={setBenchmarkSampleSize}
+            onChannelPresetNameChange={setChannelPresetName}
+            onChannelSampleSizeChange={setChannelSampleSize}
+            onChannelUrlChange={setChannelUrl}
+            onCloneGoalChange={setCloneGoal}
+            onCloneNicheChange={setCloneNiche}
+            onClonePresentationStyleChange={setClonePresentationStyle}
+            onCloneStageChange={setCloneStage}
+            onCompareChannelUrlChange={handleCompareChannelUrlChange}
+            onCompareSampleSizeChange={setCompareSampleSize}
+            onDeletePreset={(id) => setSavedChannelPresets((current) => current.filter((item) => item.id !== id))}
+            onImportBenchmarkAnalytics={() => void handleImportStudioAnalytics("benchmark")}
+            onImportCompareAnalytics={() => void handleImportStudioAnalytics("compare")}
+            onImportMainAnalytics={() => void handleImportStudioAnalytics("main")}
+            onLoadBenchmarkFeed={() => void handleLoadBenchmarkChannelVideos()}
+            onLoadCompareFeed={() => void handleLoadCompareChannelVideos()}
+            onLoadMainFeed={() => void handleLoadChannelVideos()}
+            onLoadPreset={(id) => {
+              const preset = savedChannelPresets.find((item) => item.id === id);
+              if (preset) handleLoadChannelPreset(preset);
+            }}
+            onMyChannelUrlChange={setMyChannelUrl}
+            onOpenVideoBrief={(video) => {
+              setActiveView("studio");
+              setWorkspaceMode("single");
+              setVideoTitle(video.title);
+              setVideoUrl(video.url);
+              showStatus("Video Loaded", "success");
+            }}
+            onRunClonePlan={() => void handleRunChannelDeepDive()}
+            onRunCompare={() => void handleRunChannelCompare()}
+            onSavePreset={handleSaveChannelPreset}
+            onSelectAllBenchmarkVideos={handleSelectAllBenchmarkVideos}
+            onSelectAllChannelVideos={handleSelectAllChannelVideos}
+            onSelectAllCompareVideos={handleSelectAllCompareVideos}
+            onSelectTopBenchmarkVideos={handleSelectTopBenchmarkVideos}
+            onSelectTopChannelVideos={handleSelectTopChannelVideos}
+            onSelectTopCompareVideos={handleSelectTopCompareVideos}
+            onSendToBatch={() => {
+              setActiveView("studio");
+              setBatchInput(selectedChannelVideos.map((video) => video.url).join("\n"));
+              setWorkspaceMode("batch");
+              showStatus("Moved To Batch Studio", "success");
+            }}
+            onToggleBenchmarkVideo={handleToggleBenchmarkVideo}
+            onToggleChannelVideo={handleToggleChannelVideo}
+            onToggleCompareVideo={handleToggleCompareVideo}
+            onClearBenchmarkSelection={handleClearBenchmarkSelection}
+            onClearChannelSelection={handleClearChannelSelection}
+            onClearCompareSelection={handleClearCompareSelection}
+          />
+        </article>
+        <article className="cipher-view-card">
+          <div className="cipher-card-title">Overview</div>
+          <p>{cloneChannel?.overview || channelDeepDive?.overview || "Load a main channel sample and run Clone Plan to populate the overview."}</p>
+        </article>
+        {renderAnalyzeArrayCard("Top Lessons", cloneChannel?.topLessons ?? [], "Run Clone Plan to surface the main strategic lessons.")}
+        {renderAnalyzeArrayCard("Top Risks", cloneChannel?.topRisks ?? [], "Run Clone Plan to reveal platform and execution risks.")}
+        {renderAnalyzeArrayCard("Topic Clusters", channelDeepDive?.topicClusters ?? [], "Topic clusters will appear once the channel sample has been analyzed.")}
+      </>
+    ));
+  }
+
+  function renderAnalyzeSeo() {
+    return renderAnalyzeSectionShell("seo", (
+      <>
+        {renderAnalyzeArrayCard("SEO Audit", channelDeepDive?.seoAudit ?? [], "Run Clone Plan to generate the channel SEO audit.")}
+        {renderAnalyzeArrayCard("Title Patterns", channelDeepDive?.titlePatterns ?? [], "Title patterns will appear after channel analysis runs.")}
+        {renderAnalyzeArrayCard("Title Templates", cloneChannel?.titleIntel.templates ?? channelDeepDive?.titleTemplates ?? [], "Title templates will appear after channel analysis runs.")}
+        {renderAnalyzeArrayCard("Trigger Words", cloneChannel?.titleIntel.triggerWords ?? [], "Trigger word analysis will appear after Clone Plan finishes.")}
+        {renderAnalyzeArrayCard("Description Signals", channelDeepDive?.descriptionSignals ?? [], "Description and packaging signals will appear after the audit runs.")}
+      </>
+    ));
+  }
+
+  function renderAnalyzeStyle() {
+    return renderAnalyzeSectionShell("style", (
+      <>
+        <article className="cipher-view-card">
+          <div className="cipher-card-title">Core Promise</div>
+          <p>{cloneChannel?.dna.promise || channelDeepDive?.channelDNA.promise || "The channel promise will appear after channel analysis runs."}</p>
+        </article>
+        {renderAnalyzeArrayCard("Style DNA", channelDeepDive?.styleDNA ?? [], "Style DNA will appear after the current channel sample has been processed.")}
+        {renderAnalyzeArrayCard("Tone", cloneChannel?.dna.tone ?? [], "Tone markers will appear after Clone Plan finishes.")}
+        {renderAnalyzeArrayCard("Content Pillars", cloneChannel?.dna.pillars ?? channelDeepDive?.channelDNA.pillars ?? [], "Content pillars will appear after the deep dive runs.")}
+        {renderAnalyzeArrayCard("Format Mix", cloneChannel?.dna.formats ?? channelDeepDive?.channelDNA.formats ?? [], "Format mix will appear after the deep dive runs.")}
+        {renderAnalyzeArrayCard("Creator Edge", cloneChannel?.dna.creatorEdge ?? [], "Creator edge observations will appear after Clone Plan finishes.")}
+      </>
+    ));
+  }
+
+  function renderAnalyzeOpportunities() {
+    return renderAnalyzeSectionShell("opportunities", (
+      <>
+        {renderAnalyzeArrayCard("Opportunities", channelDeepDive?.opportunityFinder ?? [], "Opportunity gaps will appear after the deep dive runs.")}
+        {renderAnalyzeArrayCard("Fits", cloneChannel?.adaptationPlan.fits ?? [], "Adaptation fit notes will appear after Clone Plan finishes.")}
+        {renderAnalyzeArrayCard("Needs Adapting", cloneChannel?.adaptationPlan.needsAdapting ?? [], "Adaptation changes will appear after Clone Plan finishes.")}
+        {renderAnalyzeArrayCard("Fastest Lift", cloneChannel?.adaptationPlan.fastestLift ?? [], "Fastest-lift opportunities will appear after Clone Plan finishes.")}
+        {renderAnalyzeArrayCard("Next Video Ideas", cloneChannel?.actionPlan.nextVideoIdeas ?? channelDeepDive?.nextVideoIdeas ?? [], "Next-video opportunities will appear after analysis runs.")}
+      </>
+    ));
+  }
+
+  function renderAnalyzeCloneBrief() {
+    return renderAnalyzeSectionShell("clone", (
+      <>
+        {renderAnalyzeArrayCard("Clone Brief", channelDeepDive?.cloneBrief ?? [], "Run Clone Plan to generate the clone brief.")}
+        {renderAnalyzeArrayCard("Borrow", cloneChannel?.actionPlan.borrow ?? [], "Borrow recommendations will appear after Clone Plan finishes.")}
+        {renderAnalyzeArrayCard("Adapt", cloneChannel?.actionPlan.adapt ?? [], "Adaptation recommendations will appear after Clone Plan finishes.")}
+        {renderAnalyzeArrayCard("First Moves", cloneChannel?.actionPlan.firstMoves ?? [], "First moves will appear after Clone Plan finishes.")}
+        {renderAnalyzeArrayCard("30-Day Plan", cloneChannel?.actionPlan.day30 ?? [], "The 30-day action plan will appear after Clone Plan finishes.")}
+        {renderAnalyzeArrayCard("60-Day Plan", cloneChannel?.actionPlan.day60 ?? [], "The 60-day action plan will appear after Clone Plan finishes.")}
+        {renderAnalyzeArrayCard("90-Day Plan", cloneChannel?.actionPlan.day90 ?? [], "The 90-day action plan will appear after Clone Plan finishes.")}
+      </>
+    ));
+  }
+
+  function renderAnalyzeScorecard() {
+    return renderAnalyzeSectionShell("scorecard", (
+      <>
+        <article className="cipher-view-card">
+          <div className="cipher-card-title">Clone Scorecard</div>
+          {cloneChannel?.scores.length ? (
+            <div className="cipher-score-grid">
+              {cloneChannel.scores.map((item) => (
+                <article key={`clone-score-${item.label}`} className="cipher-score-card">
+                  <div className="cipher-score-head">
+                    <strong>{item.label}</strong>
+                    <span>{item.score}/100</span>
+                  </div>
+                  <p>{item.note}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-copy">Run Clone Plan to generate the clone scorecard.</p>
+          )}
+        </article>
+        <article className="cipher-view-card">
+          <div className="cipher-card-title">Channel Scorecard</div>
+          {channelDeepDive?.scorecard.length ? (
+            <div className="cipher-score-grid">
+              {channelDeepDive.scorecard.map((item) => (
+                <article key={`channel-score-${item.label}`} className="cipher-score-card">
+                  <div className="cipher-score-head">
+                    <strong>{item.label}</strong>
+                    <span>{item.score}/100</span>
+                  </div>
+                  <p>{item.note}</p>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-copy">Run the deep dive to populate the channel scorecard.</p>
+          )}
+        </article>
+        {renderAnalyzeArrayCard("Differentiate", cloneChannel?.actionPlan.differentiate ?? channelDeepDive?.adaptationPlan.differentiate ?? [], "Differentiation guidance will appear after Clone Plan finishes.")}
+      </>
+    ));
+  }
+
+  function renderAnalyzeSectionContent() {
+    if (analyzeSection === "seo") return renderAnalyzeSeo();
+    if (analyzeSection === "style") return renderAnalyzeStyle();
+    if (analyzeSection === "opportunities") return renderAnalyzeOpportunities();
+    if (analyzeSection === "clone") return renderAnalyzeCloneBrief();
+    if (analyzeSection === "scorecard") return renderAnalyzeScorecard();
+    return renderAnalyzeOverview();
+  }
+
+  function renderCompareWorkspace() {
+    const compareMetrics: ModeMetric[] = [
+      {
+        label: "Primary Sample",
+        value: channelCompare ? `${channelCompare.metrics.primarySampleSize}` : `${selectedChannelVideos.length || channelVideos.length}`,
+        note: channelCompare ? `${channelCompare.primaryLabel} videos reviewed` : "selected main-channel videos",
+      },
+      {
+        label: "Compare Sample",
+        value: channelCompare ? `${channelCompare.metrics.competitorSampleSize}` : `${selectedCompareVideos.length || compareChannelVideos.length}`,
+        note: channelCompare ? `${channelCompare.competitorLabel} videos reviewed` : "selected competitor videos",
+      },
+      {
+        label: "Shared Themes",
+        value: `${channelCompare?.overlapThemes.length ?? 0}`,
+        note: channelCompare ? "overlap opportunities identified" : "appears once compare runs",
+      },
+      {
+        label: "Avg Views Gap",
+        value: channelCompare
+          ? `${formatMetricCount(channelCompare.metrics.primaryAverageViews)} / ${formatMetricCount(channelCompare.metrics.competitorAverageViews)}`
+          : "Pending",
+        note: channelCompare ? "primary vs competitor visible average" : "run compare to populate",
+      },
+    ];
+    const compareTitle = channelCompare
+      ? `${channelCompare.primaryLabel} vs ${channelCompare.competitorLabel}`
+      : "Compare channels side by side";
+    const compareDescription = channelCompare
+      ? channelCompare.overview || "Review overlap, whitespace, and adaptation guidance in one workspace."
+      : "Load a main channel and a competitor to generate overlap, winners, and adaptation guidance.";
+    const compareBadges = [
+      compareChannelUrl.trim() ? "competitor loaded" : "competitor pending",
+      cloneNiche.trim() ? cloneNiche.trim() : "general niche",
+      `${cloneStage} stage`,
+    ];
+
+    return renderModeShell({
+      eyebrow: "Compare",
+      title: compareTitle,
+      description: compareDescription,
+      badges: compareBadges,
+      metrics: compareMetrics,
+      body: (
+        <ComparePage
+          channelCompare={channelCompare}
+          cloneContextLabel={formatCloneContextMeta(cloneNiche, cloneStage, clonePresentationStyle, cloneGoal)}
+          compareResultTab={compareResultTab}
+          reportCount={savedChannelReports.length}
+          onCompareResultTabChange={setCompareResultTab}
+          onCopyReport={() => void handleCopyChannelCompare()}
+          onExportPdf={() => void handleExportChannelComparePdf()}
+          onExportReport={() => void handleExportChannelCompare()}
+          onOpenChannelLab={() => handleSelectView("channel")}
+          onOpenLibrary={() => {
+            setHistorySearch("compare");
+            handleSelectView("library");
+          }}
+        />
+      ),
+    });
+  }
+
+  function renderSavedReportsWorkspace() {
+    const searchValue = historySearch.trim();
+    const libraryMetrics: ModeMetric[] = [
+      {
+        label: "Projects",
+        value: `${libraryProjects.length}`,
+        note: searchValue ? "matching saved projects" : "workspace snapshots available",
+      },
+      {
+        label: "Briefs",
+        value: `${libraryBriefs.length}`,
+        note: searchValue ? "matching brief exports" : "saved video-intel outputs",
+      },
+      {
+        label: "Presets",
+        value: `${libraryPresets.length}`,
+        note: searchValue ? "matching channel presets" : "reusable channel setups",
+      },
+      {
+        label: "Reports",
+        value: `${libraryReports.length}`,
+        note: searchValue ? "matching deep-dive reports" : "saved compare and clone reports",
+      },
+    ];
+    const libraryDescription = visibleLibraryItemCount > 0
+      ? `Showing ${visibleLibraryItemCount} saved item${visibleLibraryItemCount === 1 ? "" : "s"} across briefs, presets, reports, and projects.`
+      : searchValue
+        ? "No saved items match the current search. Clear the filter or save new work from Analyze or Compare."
+        : "Saved briefs, reports, presets, and projects will appear here as you capture work across the app.";
+    const libraryBadges = [
+      searchValue ? `filter: ${searchValue}` : "all saved items",
+      isProMode ? "pro workspace" : "basic workspace",
+      `${projectCount} total projects`,
+    ];
+
+    return renderModeShell({
+      eyebrow: "Saved Reports",
+      title: "Saved research and reusable setups",
+      description: libraryDescription,
+      badges: libraryBadges,
+      metrics: libraryMetrics,
+      body: (
+        <LibraryPage
+          activeBriefId={activeBriefId}
+          filteredBriefs={libraryBriefs}
+          filteredChannelPresets={libraryPresets}
+          filteredChannelReports={libraryReports}
+          filteredProjects={libraryProjects}
+          formatCreatedAt={formatCreatedAt}
+          historySearch={historySearch}
+          isProMode={isProMode}
+          librarySearchPlaceholder={librarySearchPlaceholder}
+          visibleLibraryItemCount={visibleLibraryItemCount}
+          onDeleteBrief={(id) => setBriefs((current) => current.filter((item) => item.id !== id))}
+          onDeleteProject={handleDeleteProject}
+          onDeletePreset={(id) => setSavedChannelPresets((current) => current.filter((item) => item.id !== id))}
+          onDeleteReport={(id) => setSavedChannelReports((current) => current.filter((item) => item.id !== id))}
+          onHistorySearchChange={setHistorySearch}
+          onLoadProject={handleLoadProject}
+          onRenameProject={handleRenameProject}
+          onLoadBrief={(id) => {
+            const brief = briefs.find((item) => item.id === id);
+            if (brief) handleLoadBrief(brief);
+          }}
+          onLoadPreset={(id) => {
+            const preset = savedChannelPresets.find((item) => item.id === id);
+            if (preset) handleLoadChannelPreset(preset);
+          }}
+          onLoadReport={(id) => {
+            const report = savedChannelReports.find((item) => item.id === id);
+            if (report) handleLoadSavedChannelReport(report);
+          }}
+        />
+      ),
+    });
+  }
+
+  function renderExportsWorkspace() {
+    const exportMetrics: ModeMetric[] = [
+      {
+        label: "Brief Export",
+        value: transcriptWordCount >= 30 ? `${getWordCount(exportPreview)} words` : "Pending",
+        note: transcriptWordCount >= 30 ? "current video-intel package" : "generate a brief to populate",
+      },
+      {
+        label: "Clone Plan",
+        value: cloneChannel?.exportDeck ? "Ready" : "Pending",
+        note: cloneChannel?.exportDeck ? "channel plan deck available" : "run Clone Plan in Analyze",
+      },
+      {
+        label: "Compare Deck",
+        value: channelCompare?.exportDeck ? "Ready" : "Pending",
+        note: channelCompare?.exportDeck ? "compare report deck available" : "run Channel Compare first",
+      },
+      {
+        label: "File Output",
+        value: exportFormat.toUpperCase(),
+        note: canExportPdf ? "PDF export supported" : "markdown and copy-first handoff",
+      },
+    ];
+    const exportDescription = cloneChannel?.exportDeck || channelCompare?.exportDeck || transcriptWordCount >= 30
+      ? "Everything ready to hand off lives here: brief exports, clone plan decks, and compare reports."
+      : "Exports will fill in as soon as you generate a brief, run a clone plan, or complete a channel compare.";
+    const exportBadges = [
+      `${copyFormat} copy`,
+      `${summaryStyle} summary`,
+      outputLanguage.toUpperCase(),
+    ];
+
+    return renderModeShell({
+      eyebrow: "Export",
+      title: "Deliverables and handoff surfaces",
+      description: exportDescription,
+      badges: exportBadges,
+      metrics: exportMetrics,
+      body: (
+        <ExportsPage
+          briefPreview={exportPreview}
+          briefTitle={videoTitle || analysis.summary.headline}
+          cloneReport={cloneChannel?.exportDeck ?? null}
+          compareReport={channelCompare?.exportDeck ?? null}
+          onCopyBrief={() => void handleCopy()}
+          onCopyCloneReport={() => void handleCopyChannelDeepDive()}
+          onCopyCompareReport={() => void handleCopyChannelCompare()}
+          onExportBrief={() => void handleExport()}
+          onExportClonePdf={() => void handleExportChannelDeepDivePdf()}
+          onExportCloneReport={() => void handleExportChannelDeepDive()}
+          onExportComparePdf={() => void handleExportChannelComparePdf()}
+          onExportCompareReport={() => void handleExportChannelCompare()}
+        />
+      ),
+    });
+  }
+
+  function renderSettingsWorkspace() {
+    const settingsMetrics: ModeMetric[] = [
+      {
+        label: "Experience",
+        value: experienceMode.toUpperCase(),
+        note: isProMode ? "channel, compare, and analytics unlocked" : "brief-first workspace",
+      },
+      {
+        label: "Transcript Fetch",
+        value: canFetchTranscript ? "Ready" : "Idle",
+        note: canFetchTranscript ? "video URL is ready for import" : "add a video URL in Video Intel",
+      },
+      {
+        label: "Channel Import",
+        value: canFetchChannel ? "Ready" : "Offline",
+        note: canFetchChannel ? "channel feeds can be loaded" : "desktop runtime needed for feed loading",
+      },
+      {
+        label: "Studio Analytics",
+        value: canImportAnalytics ? "Ready" : "Unavailable",
+        note: canImportAnalytics ? "CSV workflow is available" : "desktop runtime needed for analytics import",
+      },
+    ];
+    const settingsBadges = [
+      runtimeReady ? "desktop runtime connected" : "web-safe mode",
+      `${copyFormat} output`,
+      `${summaryStyle} summaries`,
+    ];
+
+    return renderModeShell({
+      eyebrow: "Settings",
+      title: "Workspace defaults and environment controls",
+      description: "Tune how Cipher Lens writes, exports, and behaves without leaving the main shell.",
+      badges: settingsBadges,
+      metrics: settingsMetrics,
+      body: (
+        <SettingsPage
+          audiencePreset={audiencePreset}
+          availableCopyFormats={availableCopyFormats}
+          canExportPdf={canExportPdf}
+          canFetchChannel={canFetchChannel}
+          canFetchTranscript={canFetchTranscript}
+          canImportAnalytics={canImportAnalytics}
+          cleaner={cleaner}
+          copyFormat={copyFormat}
+          experienceMode={experienceMode}
+          exportFormat={exportFormat}
+          outputLanguage={outputLanguage}
+          runtimeReady={runtimeReady}
+          summaryStyle={summaryStyle}
+          onAudiencePresetChange={setAudiencePreset}
+          onCleanerChange={setCleaner}
+          onCopyFormatChange={setCopyFormat}
+          onExperienceModeChange={setExperienceMode}
+          onExportFormatChange={setExportFormat}
+          onOutputLanguageChange={setOutputLanguage}
+          onSummaryStyleChange={setSummaryStyle}
+        />
+      ),
+    });
+  }
+
+  function renderMainView() {
+    if (activeView === "channel") {
+      return renderAnalyzeSectionContent();
+    }
+    if (activeView === "compare" && isProMode) {
+      return renderCompareWorkspace();
+    }
+    if (activeView === "library") {
+      return renderSavedReportsWorkspace();
+    }
+    if (activeView === "exports") {
+      return renderExportsWorkspace();
+    }
+    if (activeView === "settings") {
+      return renderSettingsWorkspace();
+    }
+    if (activeView === "studio") {
+      return (
+        <div className="vi-shell">
+          <aside className="vi-section-panel">
+            <div className="vi-section-header">
+              <div className="vi-section-eyebrow">Video Intel</div>
+              <div className="vi-section-title">{videoTitle || "No Video Loaded"}</div>
+              <div className="vi-chip-row">
+                <span className="cipher-chip">{transcriptWordCount} words</span>
+                <span className="cipher-chip">{transcriptSource ? "transcript ready" : "no transcript"}</span>
+              </div>
+            </div>
+            <div className="vi-section-list">
+              <button type="button" className={`vi-section-item ${viSection === "input" ? "is-active" : ""}`} onClick={() => setViSection("input")}>
+                Input
+              </button>
+              <button type="button" className={`vi-section-item ${viSection === "summary" ? "is-active" : ""}`} onClick={() => {
+                setViSection("summary");
+                setInsightTab("summary");
+              }}>
+                Summary
+              </button>
+              <button type="button" className={`vi-section-item ${viSection === "insights" ? "is-active" : ""}`} onClick={() => {
+                setViSection("insights");
+                setInsightTab("insights");
+              }}>
+                Insights
+              </button>
+              <button type="button" className={`vi-section-item ${viSection === "exports" ? "is-active" : ""}`} onClick={() => {
+                setViSection("exports");
+                setInsightTab("exports");
+              }}>
+                Exports
+              </button>
+              <button type="button" className={`vi-section-item ${viSection === "chat" ? "is-active" : ""}`} onClick={() => {
+                setViSection("chat");
+                setInsightTab("chat");
+              }}>
+                Chat
+              </button>
+            </div>
+          </aside>
+
+          <div className="vi-main">
+            {viSection === "input" ? (
+              <VideoIntelWorkspace
+                audiencePreset={audiencePreset}
+                availableCopyFormats={availableCopyFormats}
+                batchInput={batchInput}
+                batchResults={batchResults}
+                busy={busy}
+                canFetchTranscript={canFetchTranscript}
+                canGenerate={canGenerate}
+                canImportFile={canImportFile}
+                cleaner={cleaner}
+                copyFormat={copyFormat}
+                exportFormat={exportFormat}
+                isPending={isPending}
+                isProMode={isProMode}
+                languageOptions={LANGUAGE_OPTIONS}
+                outputLanguage={outputLanguage}
+                summaryStyle={summaryStyle}
+                transcript={transcript}
+                transcriptLanguage={transcriptLanguage}
+                transcriptSource={transcriptSource}
+                videoTitle={videoTitle}
+                videoUrl={videoUrl}
+                workspaceMode={workspaceMode}
+                onAudiencePresetChange={setAudiencePreset}
+                onBatchInputChange={setBatchInput}
+                onCleanerChange={setCleaner}
+                onCleanTranscript={handleCleanTranscript}
+                onCopyFormatChange={setCopyFormat}
+                onExport={() => void handleExport()}
+                onExportFormatChange={setExportFormat}
+                onFetch={(generate) => void handleFetch(generate)}
+                onGenerateFromText={handleGenerateFromText}
+                onImportTranscript={() => void handleImportTranscript()}
+                onLoadBatchItem={handleLoadBatchResult}
+                onLoadSample={handleLoadStudioSample}
+                onOutputLanguageChange={setOutputLanguage}
+                onRunBatch={() => void handleRunBatch()}
+                onSave={handleSave}
+                onSaveCopy={() => void handleCopy()}
+                onSetTranscript={setTranscript}
+                onSetTranscriptLanguage={setTranscriptLanguage}
+                onSetVideoTitle={setVideoTitle}
+                onSetVideoUrl={setVideoUrl}
+                onSummaryStyleChange={setSummaryStyle}
+                onResetWorkspace={handleClearStudioWorkspace}
+              />
+            ) : (
+              <VideoIntelInsights
+                analysis={analysis}
+                answer={answer}
+                copyFormat={copyFormat}
+                copyPreview={copyPreview}
+                exportPreview={exportPreview}
+                filteredClipMoments={filteredClipMoments}
+                filteredContentCalendar={filteredContentCalendar}
+                insightTab={viSection}
+                insightTabLabels={INSIGHT_TAB_LABELS}
+                isProMode={isProMode}
+                plannerChannelFilter={plannerChannelFilter}
+                plannerChannelOptions={plannerChannelOptions}
+                plannerLead={plannerLead}
+                proClipScoreFloor={proClipScoreFloor}
+                question={question}
+                repurposeReach={repurposeReach}
+                strategicTrack={strategicTrack}
+                strongestClip={strongestClip}
+                timestampMatches={timestampMatches}
+                timestampSearch={timestampSearch}
+                visibleInsightTabs={visibleInsightTabs}
+                onAskTranscript={handleAskTranscript}
+                onInsightTabChange={(tab) => {
+                  setInsightTab(tab);
+                  setViSection(tab);
+                }}
+                onOpenTimestamp={(seconds) => void handleOpenTimestamp(seconds)}
+                onPlannerChannelFilterChange={setPlannerChannelFilter}
+                onProClipScoreFloorChange={setProClipScoreFloor}
+                onQuestionChange={setQuestion}
+                onQuickExport={handleProQuickExport}
+                onTimestampSearchChange={setTimestampSearch}
+              />
+            )}
+          </div>
+        </div>
+      );
+    }
+    if (activeView === "analytics" && isProMode) {
+      return (
+        <StudioAnalyticsPage
+          benchmark={{
+            coverageLabel: benchmarkStudioCoverage,
+            importSummary: benchmarkStudioImport,
+            videos: benchmarkChannelVideos,
+          }}
+          busy={busy}
+          canImportAnalytics={canImportAnalytics}
+          compare={{
+            coverageLabel: compareStudioCoverage,
+            importSummary: compareStudioImport,
+            videos: compareChannelVideos,
+          }}
+          main={{
+            coverageLabel: mainStudioCoverage,
+            importSummary: mainStudioImport,
+            videos: channelVideos,
+          }}
+          onImportBenchmarkAnalytics={() => void handleImportStudioAnalytics("benchmark")}
+          onImportCompareAnalytics={() => void handleImportStudioAnalytics("compare")}
+          onImportMainAnalytics={() => void handleImportStudioAnalytics("main")}
+          onOpenChannelLab={() => handleSelectView("channel")}
+          onOpenVideoBrief={(video) => {
+            setActiveView("studio");
+            setWorkspaceMode("single");
+            setVideoTitle(video.title);
+            setVideoUrl(video.url);
+            showStatus("Video Loaded", "success");
+          }}
+        />
+      );
+    }
+    if (activeView === "projects") {
+      return (
+        <ProjectsPage
+          formatCreatedAt={formatCreatedAt}
+          historySearch={historySearch}
+          items={libraryProjects}
+          onDeleteProject={handleDeleteProject}
+          onHistorySearchChange={setHistorySearch}
+          onLoadProject={handleLoadProject}
+          onRenameProject={handleRenameProject}
+          visibleCount={libraryProjects.length}
+        />
+      );
+    }
+    return (
+      <HomeDashboard
+        projectCount={projectCount}
+        recentProjects={homeRecentProjects}
+        recentBriefs={homeRecentBriefs}
+        recentPresets={homeRecentPresets}
+        recentReports={homeRecentReports}
+        formatCreatedAt={formatCreatedAt}
+        onLoadProject={handleLoadProject}
+        onLoadBrief={(id) => {
+          const brief = briefs.find((item) => item.id === id);
+          if (brief) handleLoadBrief(brief);
+        }}
+        onLoadPreset={(id) => {
+          const preset = savedChannelPresets.find((item) => item.id === id);
+          if (preset) handleLoadChannelPreset(preset);
+        }}
+        onLoadReport={(id) => {
+          const report = savedChannelReports.find((item) => item.id === id);
+          if (report) handleLoadSavedChannelReport(report);
+        }}
+        onOpenChannelLab={() => handleSelectView("channel")}
+        onOpenCompareReports={() => {
+          setHistorySearch("compare");
+          handleSelectView("library");
+        }}
+        onOpenAnalytics={() => handleSelectView("analytics")}
+        onOpenLibrary={() => {
+          setHistorySearch("");
+          handleSelectView("library");
+        }}
+        onOpenProjects={() => handleSelectView("projects")}
+        onOpenVideoIntel={() => handleSelectView("studio")}
+      />
+    );
+  }
+
   return (
-    <main className="lens-app app-shell">
-      <section className="hero-panel">
-        <div className="hero-status-row">
-          <span className={`status-badge is-${statusTone}`}>{status}</span>
-        </div>
-        <div className="hero-copy-stack">
-          <div className="cipher-logo hero-logo" aria-label="Cipher Lens">
-            <img className="cipher-logo-icon" src={`${import.meta.env.BASE_URL}brand/cipher-mark.svg`} alt="" />
-            <span className="word">Cipher</span>
-            <span className="tm">TM</span>
-            <span className="tool-name">Lens</span>
-          </div>
-          <span className="hero-version">Cipher Suite | Cipher Lens v1.0.0</span>
-          <p className="hero-motto">{shellTitle}</p>
-        </div>
-      </section>
-
-      <section className="simple-card brand-control-panel">
-        <div className="status-row">
-          <div>
-            <h2>Experience Mode</h2>
-            <p className="mode-description">Choose the workspace depth you want before jumping into the app.</p>
-          </div>
-          <div className="pill-row hero-mode-row">
-            {(["basic", "pro"] as ExperienceMode[]).map((mode) => <button key={mode} type="button" className={`mode-pill ${experienceMode === mode ? "is-active" : ""}`} onClick={() => handleExperienceModeChange(mode)}>{EXPERIENCE_MODE_LABELS[mode]}</button>)}
-          </div>
-        </div>
-      </section>
-
-      <section className="simple-card">
-        <div className="status-row mode-header-row">
-          <div>
-            <h2>{activeView === "studio" ? (isProMode ? "Pro Studio" : "Basic Studio") : activeView === "channel" ? "Channel Lab" : "Library"}</h2>
-            <p className="mode-description">{activeView === "studio" ? (isProMode ? "Single-video analysis, batch runs, exports, transcript chat, and publishing intelligence." : "Fast single-video briefs for summaries, exports, and quick decisions.") : activeView === "channel" ? "Dedicated flow for Deep Dive, Compare, sample control, and presets." : (isProMode ? "Saved briefs, reports, and reusable presets in one separate place." : "Saved briefs stay separate from your live workspace.")}</p>
-          </div>
-          <div className="header-control-stack">
-            <div className="pill-row">
-              {visibleAppViews.map((view) => <button key={view} type="button" className={`mode-pill ${activeView === view ? "is-active" : ""}`} onClick={() => handleSelectView(view)}>{APP_VIEW_LABELS[view]}</button>)}
+    <AppErrorBoundary>
+      <main className="lens-app app-shell cipher-shell">
+        <div className={`cipher-layout ${showAnalyzePanel ? "is-analyze" : "is-full"}`}>
+          <aside className="cipher-icon-sidebar">
+            <div className="cipher-sidebar-logo" aria-label="Cipher Lens">
+              <div className="cipher-sidebar-logo-mark">CL</div>
             </div>
-          </div>
-        </div>
-        {activeView === "studio" && isProMode ? <div className="mode-subrow">
-          <span className="mode-note">Batch, transcript chat, and richer export tools are active here.</span>
-          <div className="pill-row">
-            {visibleStudioModes.map((mode) => <button key={mode} type="button" className={`mode-pill ${workspaceMode === mode ? "is-active" : ""}`} onClick={() => setWorkspaceMode(mode)}>{WORKSPACE_MODE_LABELS[mode]}</button>)}
-          </div>
-        </div> : activeView === "channel" ? <div className="mode-subrow">
-          <span className="mode-note">Deep Dive and Compare stay here, so channel research no longer competes with single-video work.</span>
-        </div> : activeView === "library" ? <div className="mode-subrow">
-          <span className="mode-note">{isProMode ? "History stays in its own screen, so saved items do not crowd the active workflow." : "Saved briefs stay easy to reopen without crowding the active workflow."}</span>
-        </div> : null}
-      </section>
+            <div className="cipher-nav-group">
+              <button type="button" className={`cipher-icon-button ${isHomeNavActive ? "is-active" : ""}`} onClick={() => handleSelectView("home")} title="Home">
+                {renderLayoutIcon("home")}
+              </button>
+              <button type="button" className={`cipher-icon-button ${isLibraryNavActive ? "is-active" : ""}`} onClick={() => handleSelectView("library")} title="Library">
+                {renderLayoutIcon("library")}
+              </button>
+            </div>
+            <div className="cipher-sidebar-spacer" />
+            <div className="cipher-nav-group">
+              <button type="button" className={`cipher-icon-button ${isExportNavActive ? "is-active" : ""}`} onClick={() => handleSelectView("exports")} title="Export">
+                {renderLayoutIcon("export")}
+              </button>
+              <button type="button" className={`cipher-icon-button ${isSettingsNavActive ? "is-active" : ""}`} onClick={() => handleSelectView("settings")} title="Settings">
+                {renderLayoutIcon("settings")}
+              </button>
+            </div>
+            <div className="cipher-pro-badge">PRO</div>
+          </aside>
 
-      <div className="workspace-grid">
-        <section className="workspace-main">
-          {activeView !== "library" ? <section className="simple-card">
-            <div className="section-header"><div><h2>{activeView === "channel" ? "Channel Command" : workspaceMode === "batch" ? "Batch Studio" : "Input Studio"}</h2></div><div className="header-meta-row"><span className="meta-text">{transcriptWordCount} Transcript Words</span><span className="meta-text">{analysis.quotes.length} Highlight Quotes</span><span className="meta-text">{analysis.summary.stats.transcriptLines} Lines Analyzed</span></div></div>
-
-            {activeView === "studio" && workspaceMode === "single" ? (
-              <>
-                <div className="form-grid premium-grid">
-                  <label className="field field-wide"><span>YouTube URL</span><input value={videoUrl} onChange={(event) => setVideoUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." /></label>
-                  <label className="field"><span>Video Title</span><input value={videoTitle} onChange={(event) => setVideoTitle(event.target.value)} placeholder="Optional Title" /></label>
-                  <label className="field"><span>Caption Language</span><select value={transcriptLanguage} onChange={(event) => setTranscriptLanguage(event.target.value)}>{LANGUAGE_OPTIONS.map((option) => <option key={option.value || "auto"} value={option.value}>{option.label}</option>)}</select></label>
-                  <label className="field"><span>Summary Style</span><select value={summaryStyle} onChange={(event) => setSummaryStyle(event.target.value as SummaryStyle)}>{SUMMARY_STYLE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-                  <label className="field"><span>Audience</span><select value={audiencePreset} onChange={(event) => setAudiencePreset(event.target.value as AudiencePreset)}>{AUDIENCE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-                  <label className="field"><span>Output Language</span><select value={outputLanguage} onChange={(event) => setOutputLanguage(event.target.value as OutputLanguage)}>{OUTPUT_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-                  <label className="field"><span>Copy Format</span><select value={copyFormat} onChange={(event) => setCopyFormat(event.target.value as CopyFormat)}>{availableCopyFormats.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-                  <label className="field"><span>Export Format</span><select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as ExportFormat)}>{EXPORT_FORMAT_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
-                </div>
-
-                {isProMode ? <div className="cleaner-panel">
-                  <label className="toggle-row"><input type="checkbox" checked={cleaner.removeNoiseTags} onChange={(event) => setCleaner((current) => ({ ...current, removeNoiseTags: event.target.checked }))} /><span>Remove Noise Tags</span></label>
-                  <label className="toggle-row"><input type="checkbox" checked={cleaner.removeSpeakerLabels} onChange={(event) => setCleaner((current) => ({ ...current, removeSpeakerLabels: event.target.checked }))} /><span>Strip Speaker Labels</span></label>
-                  <label className="toggle-row"><input type="checkbox" checked={cleaner.dedupeLines} onChange={(event) => setCleaner((current) => ({ ...current, dedupeLines: event.target.checked }))} /><span>Remove Duplicates</span></label>
-                  <label className="toggle-row"><input type="checkbox" checked={cleaner.trimFillers} onChange={(event) => setCleaner((current) => ({ ...current, trimFillers: event.target.checked }))} /><span>Trim Filler Words</span></label>
-                </div> : null}
-
-                {transcriptSource ? <div className="meta-row"><span>Source: YouTube</span><span>Language: {transcriptSource.language || "Default"}</span><span>Video ID: {transcriptSource.videoId}</span></div> : null}
-                <label className="field field-stack"><span>Transcript</span><textarea value={transcript} onChange={(event) => setTranscript(event.target.value)} placeholder="Paste Subtitles, Timestamps, Or Transcript Paragraphs Here." /></label>
-                <div className="command-deck">
-                  <section className="command-hero">
-                    <div className="command-hero-copy">
-                      <span className="action-cluster-label">Command Deck</span>
-                      <h3>Run the brief first, then use the utility rail only when you need it.</h3>
-                    </div>
-                    <div className="command-hero-actions">
-                      <button type="button" className="primary-button" onClick={() => void handleFetch(true)} disabled={busy || isPending || (!canFetchTranscript && !canGenerate)}>{busy || isPending ? "Working..." : canFetchTranscript ? "Fetch + Generate" : isProMode ? "Generate Premium Brief" : "Generate Brief"}</button>
-                      <button type="button" className="secondary-button" onClick={() => void handleFetch(false)} disabled={busy || !canFetchTranscript}>Fetch</button>
-                      <button type="button" className="secondary-button" onClick={handleGenerateFromText} disabled={!canGenerate || isPending}>Generate</button>
-                    </div>
-                  </section>
-                  <div className="command-grid">
-                    <section className="command-card">
-                      <div className="command-card-head">
-                        <span className="action-cluster-label">Transcript</span>
-                        <p>Bring text in or clean it before analysis.</p>
-                      </div>
-                      <div className="action-cluster-buttons">
-                        <button type="button" className="secondary-button" onClick={() => void handleImportTranscript()} disabled={!canImportFile}>Import</button>
-                        <button type="button" className="secondary-button" onClick={handleCleanTranscript} disabled={!transcript.trim()}>Clean Transcript</button>
-                      </div>
-                    </section>
-                    <section className="command-card">
-                      <div className="command-card-head">
-                        <span className="action-cluster-label">Output</span>
-                        <p>Save the current brief or send it out fast.</p>
-                      </div>
-                      <div className="action-cluster-buttons">
-                        <button type="button" className="secondary-button" onClick={handleSave}>Save</button>
-                        <button type="button" className="secondary-button" onClick={() => void handleCopy()}>Copy</button>
-                        <button type="button" className="secondary-button" onClick={() => void handleExport()}>Export</button>
-                      </div>
-                    </section>
-                    <section className="command-card command-card-muted">
-                      <div className="command-card-head">
-                        <span className="action-cluster-label">Reset</span>
-                        <p>Use these when you want to restart, not during normal flow.</p>
-                      </div>
-                      <div className="action-link-row">
-                        <button type="button" className="link-button command-link-button" onClick={() => { setVideoTitle(SAMPLE_TITLE); setVideoUrl(SAMPLE_URL); setTranscript(SAMPLE_TRANSCRIPT); setTranscriptLanguage(""); setTranscriptSource(null); setAnswer(""); showStatus("Sample Loaded", "success"); }}>Load Sample</button>
-                        <button type="button" className="link-button command-link-button danger-button" onClick={() => { setVideoTitle(""); setVideoUrl(""); setTranscript(""); setTranscriptLanguage(""); setTranscriptSource(null); setAnswer(""); setAnalysis(buildAnalysis({ title: "", url: "", transcript: "", summaryStyle, audiencePreset, outputLanguage, cleaner })); setStatusState(READY_STATUS); }}>Clear</button>
-                      </div>
-                    </section>
-                  </div>
-                </div>
-              </>
-            ) : activeView === "studio" && isProMode && workspaceMode === "batch" ? (
-              <div className="mode-panel">
-                <label className="field"><span>Batch URLs</span><textarea className="batch-textarea" value={batchInput} onChange={(event) => setBatchInput(event.target.value)} placeholder="Paste One YouTube URL Per Line." /></label>
-                <div className="button-row"><button type="button" className="primary-button" onClick={() => void handleRunBatch()} disabled={busy}>Run Batch Summary</button></div>
-                <div className="batch-list">{batchResults.length === 0 ? <p className="empty-copy">No Batch Results Yet.</p> : batchResults.map((item) => <article key={item.id} className={`result-item is-${item.status}`}><div><strong>{item.title}</strong><p>{item.message}</p></div><div className="result-actions"><span className={`result-badge is-${item.status}`}>{RESULT_STATUS_LABELS[item.status]}</span><button type="button" className="secondary-button" onClick={() => { if (!item.analysis || !item.transcript) return; setActiveView("studio"); setWorkspaceMode("single"); setVideoTitle(item.title); setVideoUrl(item.url); setTranscript(item.transcript); setAnalysis(item.analysis); showStatus("Batch Loaded", "success"); }} disabled={!item.analysis}>Open</button></div></article>)}</div>
-              </div>
-            ) : activeView === "channel" && isProMode ? (
-              <div className="mode-panel">
-                <div className="form-grid premium-grid">
-                  <label className="field field-wide"><span>YouTube Channel URL</span><input value={channelUrl} onChange={(event) => setChannelUrl(event.target.value)} placeholder="https://www.youtube.com/@channelname" /></label>
-                  <label className="field"><span>Recent Videos To Load</span><select value={String(channelSampleSize)} onChange={(event) => setChannelSampleSize(Number(event.target.value) || 8)}>{CHANNEL_SAMPLE_SIZE_OPTIONS.map((value) => <option key={value} value={value}>{value} Videos</option>)}</select></label>
-                  <label className="field field-wide"><span>Compare Channel URL</span><input value={compareChannelUrl} onChange={(event) => { setCompareChannelUrl(event.target.value); setCompareChannelVideos([]); setSelectedCompareVideoIds([]); setChannelCompare(null); }} placeholder="https://www.youtube.com/@competitor" /></label>
-                  <label className="field"><span>Compare Sample Size</span><select value={String(compareSampleSize)} onChange={(event) => setCompareSampleSize(Number(event.target.value) || 8)}>{CHANNEL_SAMPLE_SIZE_OPTIONS.map((value) => <option key={value} value={value}>{value} Videos</option>)}</select></label>
-                </div>
-                <div className="button-row">
-                  <button type="button" className="primary-button" onClick={() => void handleLoadChannelVideos()} disabled={busy || !canFetchChannel}>Load Main Feed</button>
-                  <button type="button" className="secondary-button" onClick={() => void handleLoadCompareChannelVideos()} disabled={busy || !canFetchChannel || !compareChannelUrl.trim()}>Load Compare Feed</button>
-                  <button type="button" className="secondary-button" onClick={() => void handleRunChannelDeepDive()} disabled={busy || selectedChannelVideos.length === 0 || !runtimeReady}>Run Deep Dive</button>
-                  <button type="button" className="secondary-button" onClick={() => void handleRunChannelCompare()} disabled={busy || selectedChannelVideos.length === 0 || selectedCompareVideos.length === 0 || !compareChannelUrl.trim() || !runtimeReady}>Run Compare</button>
-                  <button type="button" className="secondary-button" onClick={() => { setActiveView("studio"); setBatchInput(selectedChannelVideos.map((video) => video.url).join("\n")); setWorkspaceMode("batch"); showStatus("Moved To Batch Studio", "success"); }} disabled={selectedChannelVideos.length === 0}>Send To Batch</button>
-                </div>
-                <p className="channel-helper-note">Compare uses its own separately loaded competitor feed. Loading the main feed does not populate the compare side automatically.</p>
-                <div className="section-header channel-selection-header">
-                  <div>
-                    <h3>Main Sample</h3>
-                    <p>Select the videos that should power Deep Dive and the main side of Compare.</p>
-                  </div>
-                  <span className="meta-text">{selectedChannelVideos.length} Selected / {channelVideos.length} Loaded</span>
-                </div>
-                {channelVideos.length > 0 ? <div className="button-row channel-selection-actions">
-                  <button type="button" className="secondary-button" onClick={handleSelectAllChannelVideos}>Select All</button>
-                  <button type="button" className="secondary-button" onClick={() => handleSelectTopChannelVideos(5)}>Top 5</button>
-                  <button type="button" className="secondary-button" onClick={() => handleSelectTopChannelVideos(10)}>Top 10</button>
-                  <button type="button" className="secondary-button" onClick={handleClearChannelSelection}>Clear Selection</button>
-                </div> : null}
-                <div className="batch-list">
-                  {channelVideos.length === 0 ? <p className="empty-copy">No Main Videos Loaded Yet.</p> : channelVideos.map((video) => {
-                    const isSelected = selectedChannelVideoIdSet.has(video.videoId);
-                    return (
-                      <article key={video.videoId} className={`result-item channel-sample-item ${isSelected ? "is-selected" : "is-muted"}`}>
-                        <div className="planner-head">
-                          <label className="toggle-row selection-toggle">
-                            <input type="checkbox" checked={isSelected} onChange={() => handleToggleChannelVideo(video.videoId)} />
-                            <span>{isSelected ? "Included In Analysis" : "Excluded From Analysis"}</span>
-                          </label>
-                          <button type="button" className="secondary-button" onClick={() => { setActiveView("studio"); setWorkspaceMode("single"); setVideoTitle(video.title); setVideoUrl(video.url); showStatus("Video Loaded", "success"); }}>Open Brief</button>
-                        </div>
-                        <div>
-                          <strong>{video.title}</strong>
-                          <p>{video.url}</p>
-                          <p>{[video.publishedLabel, video.viewLabel].filter(Boolean).join(" | ") || "Recent Channel Upload"}</p>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-                <div className="section-header channel-selection-header">
-                  <div>
-                    <h3>Compare Sample</h3>
-                    <p>Load competitor uploads, then choose the exact videos that should represent that side.</p>
-                  </div>
-                  <span className="meta-text">{selectedCompareVideos.length} Selected / {compareChannelVideos.length} Loaded</span>
-                </div>
-                {compareChannelVideos.length > 0 ? <div className="button-row channel-selection-actions">
-                  <button type="button" className="secondary-button" onClick={handleSelectAllCompareVideos}>Select All</button>
-                  <button type="button" className="secondary-button" onClick={() => handleSelectTopCompareVideos(5)}>Top 5</button>
-                  <button type="button" className="secondary-button" onClick={() => handleSelectTopCompareVideos(10)}>Top 10</button>
-                  <button type="button" className="secondary-button" onClick={handleClearCompareSelection}>Clear Selection</button>
-                </div> : null}
-                <div className="batch-list">
-                  {compareChannelVideos.length === 0 ? <div className="empty-state-card"><strong>No Compare Videos Loaded Yet.</strong><p className="empty-copy">Paste a competitor channel URL above, then click <span className="empty-state-emphasis">Load Compare Feed</span>. Main feed selections stay separate so the compare side always reflects the competitor sample you choose.</p></div> : compareChannelVideos.map((video) => {
-                    const isSelected = selectedCompareVideoIdSet.has(video.videoId);
-                    return (
-                      <article key={video.videoId} className={`result-item channel-sample-item ${isSelected ? "is-selected" : "is-muted"}`}>
-                        <div className="planner-head">
-                          <label className="toggle-row selection-toggle">
-                            <input type="checkbox" checked={isSelected} onChange={() => handleToggleCompareVideo(video.videoId)} />
-                            <span>{isSelected ? "Included In Compare" : "Excluded From Compare"}</span>
-                          </label>
-                          <button type="button" className="secondary-button" onClick={() => { setActiveView("studio"); setWorkspaceMode("single"); setVideoTitle(video.title); setVideoUrl(video.url); showStatus("Video Loaded", "success"); }}>Open Brief</button>
-                        </div>
-                        <div>
-                          <strong>{video.title}</strong>
-                          <p>{video.url}</p>
-                          <p>{[video.publishedLabel, video.viewLabel].filter(Boolean).join(" | ") || "Recent Compare Upload"}</p>
-                        </div>
-                      </article>
-                    );
-                  })}
-                </div>
-                <div className="section-header channel-selection-header">
-                  <div>
-                    <h3>Sample Presets</h3>
-                    <p>Save the current main and compare setup so you can reopen it later without rebuilding it manually.</p>
-                  </div>
-                  <span className="meta-text">{savedChannelPresets.length} Saved</span>
-                </div>
-                <div className="form-grid premium-grid">
-                  <label className="field field-wide"><span>Preset Name</span><input value={channelPresetName} onChange={(event) => setChannelPresetName(event.target.value)} placeholder="Client audit preset, Gaming compare sample, Creator cohort..." /></label>
-                </div>
-                <div className="button-row">
-                  <button type="button" className="secondary-button" onClick={handleSaveChannelPreset} disabled={channelVideos.length === 0 && compareChannelVideos.length === 0}>Save Preset</button>
-                </div>
-                <div className="saved-list">
-                  {savedChannelPresets.length === 0 ? <p className="empty-copy">No Presets Saved Yet.</p> : savedChannelPresets.map((preset) => <article key={preset.id} className="saved-item"><button type="button" className="saved-open" onClick={() => handleLoadChannelPreset(preset)}><strong>{preset.name}</strong><span>{formatCreatedAt(preset.createdAt)} | {preset.selectedChannelVideoIds.length} main | {preset.selectedCompareVideoIds.length} compare</span></button><button type="button" className="link-button danger-button" onClick={() => setSavedChannelPresets((current) => current.filter((item) => item.id !== preset.id))}>Delete</button></article>)}
+          {showAnalyzePanel ? (
+            <aside className="cipher-section-panel">
+              <div className="cipher-section-header">
+                <div className="cipher-section-eyebrow">Channel Clone</div>
+                <div className="cipher-section-channel">{currentChannelLabel}</div>
+                <div className="cipher-chip-row">
+                  <span className="cipher-chip">{currentVideoCount} videos</span>
+                  {currentTranscriptCoverage !== null ? <span className="cipher-chip">{currentTranscriptCoverage}% transcript</span> : null}
                 </div>
               </div>
-            ) : null
-            }
-          </section> : null}
-
-          {activeView === "channel" && isProMode && workspaceMode === "channel" && channelCompare ? (
-            <section className="simple-card">
-              <div className="section-header">
-                <div>
-                  <h2>Channel Compare</h2>
-                  <p>{channelCompare.primaryLabel} versus {channelCompare.competitorLabel} across packaging, topic breadth, and transcript intelligence.</p>
-                </div>
-                <span className="meta-text">{channelCompare.overlapThemes.length} Shared Themes | Avg Views {formatMetricCount(channelCompare.metrics.primaryAverageViews)} vs {formatMetricCount(channelCompare.metrics.competitorAverageViews)}</span>
-              </div>
-              <div className="result-tab-row">
-                {(Object.keys(COMPARE_RESULT_TAB_LABELS) as CompareResultTab[]).map((tab) => (
-                  <button key={tab} type="button" className={`mode-pill ${compareResultTab === tab ? "is-active" : ""}`} onClick={() => setCompareResultTab(tab)}>
-                    {COMPARE_RESULT_TAB_LABELS[tab]}
+              <div className="cipher-section-list">
+                {ANALYZE_SECTIONS.map((section) => (
+                  <button key={section.id} type="button" className={`cipher-section-item ${analyzeSection === section.id ? "is-active" : ""}`} onClick={() => setAnalyzeSection(section.id)}>
+                    <span className="cipher-section-icon">{renderLayoutIcon(section.id)}</span>
+                    <span>{section.label}</span>
                   </button>
                 ))}
               </div>
-              <div className="compare-grid">
-                {compareResultTab === "summary" ? (
-                  <>
-                    <article className="summary-block compare-hero-card">
-                      <h3>Overview</h3>
-                      <p>{channelCompare.overview}</p>
-                      <div className="report-kpi-row">
-                        <article className="report-kpi-card">
-                          <strong>{channelCompare.overlapThemes.length}</strong>
-                          <span>Shared Themes</span>
-                        </article>
-                        <article className="report-kpi-card">
-                          <strong>{formatMetricCount(channelCompare.metrics.primaryAverageViews)}</strong>
-                          <span>{channelCompare.primaryLabel} Avg Views</span>
-                        </article>
-                        <article className="report-kpi-card">
-                          <strong>{formatMetricCount(channelCompare.metrics.competitorAverageViews)}</strong>
-                          <span>{channelCompare.competitorLabel} Avg Views</span>
-                        </article>
-                      </div>
-                      <div className="chip-row">
-                        {channelCompare.overlapThemes.length > 0 ? channelCompare.overlapThemes.map((theme) => <span key={theme} className="chip">{theme}</span>) : <span className="chip">Low Direct Topic Overlap</span>}
-                      </div>
-                    </article>
-                    <article className="summary-block">
-                      <h3>Scoreboard</h3>
-                      <div className="compare-metric-list">
-                        <div className="compare-metric-item"><strong>{channelCompare.primaryLabel}</strong><span>Sample {channelCompare.metrics.primarySampleSize} Videos</span><span>Avg Title Score {channelCompare.metrics.primaryAverageTitleScore}</span><span>Avg Visible Views {formatMetricCount(channelCompare.metrics.primaryAverageViews)}</span><span>Transcript Coverage {channelCompare.metrics.primaryTranscriptCoverage}%</span><span>Avg Transcript Words {channelCompare.metrics.primaryAverageTranscriptWords}</span></div>
-                        <div className="compare-metric-item"><strong>{channelCompare.competitorLabel}</strong><span>Sample {channelCompare.metrics.competitorSampleSize} Videos</span><span>Avg Title Score {channelCompare.metrics.competitorAverageTitleScore}</span><span>Avg Visible Views {formatMetricCount(channelCompare.metrics.competitorAverageViews)}</span><span>Transcript Coverage {channelCompare.metrics.competitorTranscriptCoverage}%</span><span>Avg Transcript Words {channelCompare.metrics.competitorAverageTranscriptWords}</span></div>
-                      </div>
-                    </article>
-                  </>
-                ) : null}
-
-                {compareResultTab === "winners" ? (
-                  <>
-                    <article className="summary-block">
-                      <h3>Key Winners</h3>
-                      <div className="compare-decision-list">
-                        {channelCompare.decisions.map((decision) => (
-                          <article key={decision.category} className="compare-decision-item">
-                            <strong>{decision.category}</strong>
-                            <span className="chip">{decision.winner}</span>
-                            <p>{decision.note}</p>
-                          </article>
-                        ))}
-                      </div>
-                    </article>
-                    <article className="summary-block">
-                      <h3>Recommendations</h3>
-                      <ul className="plain-list">{channelCompare.recommendations.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                    <article className="summary-block">
-                      <h3>Whitespace Opportunities</h3>
-                      <ul className="plain-list">{channelCompare.whitespaceOpportunities.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                  </>
-                ) : null}
-
-                {compareResultTab === "deck" ? (
-                  <article className="summary-block compare-export-card">
-                    <div className="section-header">
-                      <div>
-                        <h3>Compare Report</h3>
-                        <p>A ready markdown compare report for strategy, client audits, or competitor research.</p>
-                      </div>
-                      <span className="meta-text">Markdown</span>
-                    </div>
-                    <div className="button-row">
-                      <button type="button" className="secondary-button" onClick={() => void handleCopyChannelCompare()}>Copy Report</button>
-                      <button type="button" className="secondary-button" onClick={() => void handleExportChannelCompare()}>Export Report</button>
-                      <button type="button" className="secondary-button" onClick={() => void handleExportChannelComparePdf()}>Export PDF</button>
-                    </div>
-                    <textarea className="export-preview description-preview" value={channelCompare.exportDeck} readOnly />
-                  </article>
-                ) : null}
-              </div>
-            </section>
+            </aside>
           ) : null}
 
-          {activeView === "channel" && isProMode && workspaceMode === "channel" && channelDeepDive ? (
-            <section className="simple-card">
-              <div className="section-header">
-                <div>
-                  <h2>Deep Dive</h2>
-                  <p>{channelDeepDive.channelLabel} decoded across SEO, style, content structure, and opportunity signals.</p>
-                </div>
-                <span className="meta-text">{channelDeepDive.analyzedVideos} Selected / {channelDeepDive.sourceVideoCount} Loaded | {channelDeepDive.transcriptCoverage}% Transcript Coverage | Avg Views {formatMetricCount(channelDeepDive.averageViewCount)}</span>
-              </div>
-              <div className="result-tab-row">
-                {(Object.keys(CHANNEL_RESULT_TAB_LABELS) as ChannelResultTab[]).map((tab) => (
-                  <button key={tab} type="button" className={`mode-pill ${channelResultTab === tab ? "is-active" : ""}`} onClick={() => setChannelResultTab(tab)}>
-                    {CHANNEL_RESULT_TAB_LABELS[tab]}
-                  </button>
-                ))}
-              </div>
-              <div className="channel-dive-grid">
-                {channelResultTab === "overview" ? (
+          <section className="cipher-main-stage">
+            <header className="cipher-topbar">
+                <div className="cipher-topbar-title">
+                  {activeView === "home" ? (
+                  <span className="cipher-breadcrumb-current">Cipher Command Center</span>
+                  ) : (
                   <>
-                    <article className="summary-block channel-hero-card">
-                      <h3>Overview</h3>
-                      <p>{channelDeepDive.overview}</p>
-                      <div className="report-kpi-row">
-                        <article className="report-kpi-card">
-                          <strong>{channelDeepDive.analyzedVideos}</strong>
-                          <span>Selected Videos</span>
-                        </article>
-                        <article className="report-kpi-card">
-                          <strong>{channelDeepDive.transcriptCoverage}%</strong>
-                          <span>Transcript Coverage</span>
-                        </article>
-                        <article className="report-kpi-card">
-                          <strong>{formatMetricCount(channelDeepDive.averageViewCount)}</strong>
-                          <span>Average Views</span>
-                        </article>
-                      </div>
-                      <div className="chip-row">
-                        {channelDeepDive.topicClusters.map((cluster) => <span key={cluster} className="chip">{cluster}</span>)}
-                      </div>
-                    </article>
-                    <article className="summary-block">
-                      <h3>Sample Read</h3>
-                      <p>{channelDeepDive.sampleNote}</p>
-                    </article>
-                    <article className="summary-block">
-                      <h3>Channel Scorecard</h3>
-                      <div className="scorecard-grid">
-                        {channelDeepDive.scorecard.map((item) => (
-                          <article key={item.label} className="scorecard-item">
-                            <div className="scorecard-header">
-                              <strong>{item.label}</strong>
-                              <span>{item.score}/100</span>
-                            </div>
-                            <p>{item.note}</p>
-                          </article>
-                        ))}
-                      </div>
-                    </article>
+                    <button type="button" className="cipher-breadcrumb-link" onClick={() => handleSelectView("home")}>Home</button>
+                    <span className="cipher-breadcrumb-separator">&gt;</span>
+                    <span className="cipher-breadcrumb-current">{breadcrumbToolName}</span>
                   </>
-                ) : null}
-
-                {channelResultTab === "strategy" ? (
-                  <>
-                    <article className="summary-block">
-                      <h3>Signature Moves</h3>
-                      <ul className="plain-list">{channelDeepDive.signatureMoves.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                    <article className="summary-block">
-                      <h3>SEO Audit</h3>
-                      <ul className="plain-list">{channelDeepDive.seoAudit.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                    <article className="summary-block">
-                      <h3>Description Signals</h3>
-                      <ul className="plain-list">{channelDeepDive.descriptionSignals.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                    <article className="summary-block">
-                      <h3>Title Templates</h3>
-                      <ul className="plain-list">{channelDeepDive.titleTemplates.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                    <article className="summary-block">
-                      <h3>Style DNA</h3>
-                      <ul className="plain-list">{channelDeepDive.styleDNA.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                    <article className="summary-block">
-                      <h3>Thumbnail Text Signals</h3>
-                      <ul className="plain-list">{channelDeepDive.thumbnailTextSignals.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                    <article className="summary-block">
-                      <h3>Content Architecture</h3>
-                      <ul className="plain-list">{channelDeepDive.contentArchitecture.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                    <article className="summary-block">
-                      <h3>Audience Positioning</h3>
-                      <ul className="plain-list">{channelDeepDive.audiencePositioning.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                    <article className="summary-block">
-                      <h3>Publishing System</h3>
-                      <ul className="plain-list">{channelDeepDive.publishingSystem.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                    <article className="summary-block">
-                      <h3>View Signals</h3>
-                      <ul className="plain-list">{channelDeepDive.viewSignals.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                  </>
-                ) : null}
-
-                {channelResultTab === "opportunities" ? (
-                  <>
-                    <article className="summary-block">
-                      <h3>Opportunities</h3>
-                      <ul className="plain-list">{channelDeepDive.opportunityFinder.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                    <article className="summary-block">
-                      <h3>Next Video Ideas</h3>
-                      <ul className="plain-list">{channelDeepDive.nextVideoIdeas.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                    <article className="summary-block">
-                      <h3>Clone Brief</h3>
-                      <ul className="plain-list">{channelDeepDive.cloneBrief.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                    <article className="summary-block">
-                      <h3>Takeover Sprint</h3>
-                      <ul className="plain-list">{channelDeepDive.takeoverSprint.map((item) => <li key={item}>{item}</li>)}</ul>
-                    </article>
-                  </>
-                ) : null}
-
-                {channelResultTab === "deck" ? (
-                  <article className="summary-block channel-export-card">
-                    <div className="section-header">
-                      <div>
-                        <h3>Deep Dive Report</h3>
-                        <p>A ready markdown report for strategy, onboarding, or client review.</p>
-                      </div>
-                      <span className="meta-text">Markdown</span>
-                    </div>
-                    <div className="button-row">
-                      <button type="button" className="secondary-button" onClick={() => void handleCopyChannelDeepDive()}>Copy Report</button>
-                      <button type="button" className="secondary-button" onClick={() => void handleExportChannelDeepDive()}>Export Report</button>
-                      <button type="button" className="secondary-button" onClick={() => void handleExportChannelDeepDivePdf()}>Export PDF</button>
-                    </div>
-                    <textarea className="export-preview description-preview" value={channelDeepDive.exportDeck} readOnly />
-                  </article>
-                ) : null}
-
-                {channelResultTab === "breakdown" ? (
-                  <article className="summary-block channel-breakdown-card">
-                    <div className="section-header">
-                      <div>
-                        <h3>Video Breakdown</h3>
-                        <p>Per-video read for titles, theme, transcript coverage, and repeatable patterns.</p>
-                      </div>
-                      <span className="meta-text">{channelDeepDive.videoBreakdowns.length} Selected Videos</span>
-                    </div>
-                    <div className="channel-video-list">
-                      {channelDeepDive.videoBreakdowns.map((video) => (
-                        <article key={video.videoId} className="channel-video-item">
-                          <div className="planner-head">
-                            <div className="shorts-meta">
-                              <span className="chip">Score {video.titleScore}</span>
-                              <span className="chip">{video.primaryTheme}</span>
-                              <span className="chip">{video.transcriptAvailable ? `${video.transcriptWordCount} Words` : "No Transcript"}</span>
-                              <span className="chip">{video.descriptionAvailable ? "Description Ready" : "No Description"}</span>
-                              {video.thumbnailText ? <span className="chip">Thumb OCR</span> : null}
-                            </div>
-                            <button type="button" className="timestamp-button" onClick={() => { setActiveView("studio"); setWorkspaceMode("single"); setVideoTitle(video.title); setVideoUrl(video.url); showStatus("Video Loaded", "success"); }}>
-                            Open Brief
-                            </button>
-                          </div>
-                          <strong>{video.title}</strong>
-                          <p>{video.summary}</p>
-                          {video.thumbnailText ? <p>Thumbnail text: {video.thumbnailText}</p> : null}
-                          <div className="planner-foot">
-                            <span>{video.publishedLabel || "Recent Upload"}</span>
-                            <span>{video.viewLabel || "View Count Unavailable"}</span>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </article>
-                ) : null}
+                )}
               </div>
-            </section>
-          ) : null}
-
-          {activeView === "studio" ? <div className="insight-stack">
-            <section className="simple-card">
-              <div className="section-header"><div><h2>Insight Studio</h2></div><div className="pill-row insight-tab-row">{visibleInsightTabs.map((tab) => <button key={tab} type="button" className={`mode-pill insight-tab-pill ${insightTab === tab ? "is-active" : ""}`} onClick={() => setInsightTab(tab)}>{INSIGHT_TAB_LABELS[tab]}</button>)}</div></div>
-              {insightTab === "summary" ? (
-                <div className="summary-layout">
-                  <div className="summary-hero"><div><h2>{analysis.summary.headline}</h2><p className="summary-overview">{analysis.summary.overview}</p></div><div className="chip-row">{analysis.summary.keywords.map((keyword) => <span key={keyword} className="chip">{keyword}</span>)}</div></div>
-                  <div className="stats-grid"><span>{analysis.summary.stats.wordCount} Words</span><span>{formatDuration(analysis.summary.stats.readingMinutes)} Read</span><span>{analysis.summary.stats.timestampCount} Timestamps</span><span>Title Score {analysis.titleScore}/100</span></div>
-                  {isProMode ? <div className="strategy-grid">
-                    <article className="strategy-card">
-                      <span className="strategy-label">Strongest Clip</span>
-                      <strong>{strongestClip ? `Score ${strongestClip.score}` : "No Clip"}</strong>
-                      <p>{strongestClip?.title ?? "Paste more transcript text to surface clip opportunities."}</p>
-                    </article>
-                    <article className="strategy-card">
-                      <span className="strategy-label">Lead Platform</span>
-                      <strong>{plannerLead?.primaryChannel ?? "YouTube"}</strong>
-                      <p>{plannerLead?.contentType ?? "Long-form publish remains the main anchor."}</p>
-                    </article>
-                    <article className="strategy-card">
-                      <span className="strategy-label">Repurpose Reach</span>
-                      <strong>{repurposeReach} Channels</strong>
-                      <p>{analysis.contentCalendar.length} planned days with cross-posting paths already mapped.</p>
-                    </article>
-                    <article className="strategy-card">
-                      <span className="strategy-label">Strategy Call</span>
-                      <strong>{analysis.summary.keywords[0] ? analysis.summary.keywords[0] : "Core Theme"}</strong>
-                      <p>{strategicTrack}</p>
-                    </article>
-                  </div> : null}
-                  <div className="summary-columns"><div className="summary-block"><h3>Key Takeaways</h3><ol className="plain-list">{analysis.summary.takeaways.map((item) => <li key={item}>{item}</li>)}</ol></div><div className="summary-block"><h3>Action Items</h3><ul className="plain-list">{analysis.summary.actionItems.map((item) => <li key={item}>{item}</li>)}</ul></div></div>
-                  <div className="summary-block"><h3>Chapters</h3><div className="chapter-simple-list">{analysis.summary.chapters.map((chapter) => <article key={`${chapter.timeLabel}-${chapter.title}`} className="chapter-simple-item"><button type="button" className="timestamp-button" onClick={() => void handleOpenTimestamp(chapter.seconds)}>{chapter.timeLabel}</button><div><div className="chapter-title">{chapter.title}</div><p>{chapter.summary}</p></div></article>)}</div></div>
-                </div>
-              ) : insightTab === "insights" ? (
-                <div className="insight-grid">
-                  <article className="summary-block pro-control-card">
-                    <div className="section-header">
-                      <div>
-                        <h3>Idea Filters</h3>
-                        <p>Focus Pro mode on the strongest clip scores and the channel you want to ship next.</p>
-                      </div>
-                      <span className="meta-text">{filteredClipMoments.length} Clips | {filteredContentCalendar.length} Days</span>
-                    </div>
-                    <div className="filter-grid">
-                      <label className="field">
-                        <span>Minimum Clip Score</span>
-                        <input type="range" min="8" max="24" step="2" value={proClipScoreFloor} onChange={(event) => setProClipScoreFloor(Number(event.target.value))} />
-                      </label>
-                      <label className="field">
-                        <span>Planner Channel</span>
-                        <select value={plannerChannelFilter} onChange={(event) => setPlannerChannelFilter(event.target.value)}>
-                          {plannerChannelOptions.map((option) => <option key={option} value={option}>{option === "all" ? "All Channels" : option}</option>)}
-                        </select>
-                      </label>
-                    </div>
-                    <div className="chip-row">
-                      {[12, 14, 16, 18].map((score) => (
-                        <button key={score} type="button" className={`chip-action ${proClipScoreFloor === score ? "is-active" : ""}`} onClick={() => setProClipScoreFloor(score)}>
-                          Score {score}+
-                        </button>
-                      ))}
-                      {plannerChannelFilter !== "all" ? <button type="button" className="chip-action" onClick={() => setPlannerChannelFilter("all")}>Show All Channels</button> : null}
-                    </div>
-                  </article>
-                  <article className="summary-block"><h3>Highlight Quotes</h3><div className="quote-list">{analysis.quotes.map((quote) => <blockquote key={quote}>{quote}</blockquote>)}</div></article>
-                  <article className="summary-block"><h3>Shorts Ideas</h3><div className="shorts-list">{analysis.shortsIdeas.map((idea) => <article key={`${idea.title}-${idea.timeLabel}`} className="shorts-item"><div className="shorts-meta"><span className="chip">{idea.timeLabel}</span><span className="chip">{idea.title}</span></div><strong>{idea.hook}</strong><p>{idea.angle}</p></article>)}</div></article>
-                  <article className="summary-block">
-                    <div className="section-header">
-                      <div>
-                        <h3>Chapter Renamer</h3>
-                        <p>YouTube-ready chapter titles generated from the transcript flow.</p>
-                      </div>
-                      <span className="meta-text">{analysis.renamedChapters.length} Chapters</span>
-                    </div>
-                    <ul className="plain-list compact-list">{analysis.renamedChapters.map((chapter) => <li key={chapter}>{chapter}</li>)}</ul>
-                  </article>
-                  <article className="summary-block">
-                    <div className="section-header">
-                      <div>
-                        <h3>Viral Moments</h3>
-                        <p>Top transcript moments ranked for hook strength, clarity, and short-form potential.</p>
-                      </div>
-                      <span className="meta-text">{filteredClipMoments.length} Visible</span>
-                    </div>
-                    <div className="clip-moment-list">
-                      {filteredClipMoments.length > 0 ? filteredClipMoments.map((moment) => (
-                        <article key={`${moment.timeLabel}-${moment.title}`} className="clip-moment-item">
-                          <div className="clip-moment-head">
-                            <div className="shorts-meta">
-                              <span className="chip">{moment.timeLabel}</span>
-                              <span className="chip">Score {moment.score}</span>
-                              <span className="chip">{moment.clipWindow}</span>
-                            </div>
-                            <button type="button" className="timestamp-button" onClick={() => void handleOpenTimestamp(moment.seconds)}>
-                              Jump To Clip
-                            </button>
-                          </div>
-                          <strong>{moment.title}</strong>
-                          <p>{moment.hook}</p>
-                          <div className="clip-moment-reason">Why it works: {moment.reason}</div>
-                        </article>
-                      )) : <p className="empty-copy">No clip moments match this score floor yet. Lower the threshold to see more candidates.</p>}
-                    </div>
-                  </article>
-                  <article className="summary-block">
-                    <div className="section-header">
-                      <div>
-                        <h3>Planner</h3>
-                        <p>A ready 7-day schedule built from the best clips, repurposing drafts, and review steps.</p>
-                      </div>
-                      <span className="meta-text">{filteredContentCalendar.length} Days</span>
-                    </div>
-                    <div className="planner-list">
-                      {filteredContentCalendar.length > 0 ? filteredContentCalendar.map((entry) => (
-                        <article key={`${entry.dayLabel}-${entry.title}`} className="planner-item">
-                          <div className="planner-head">
-                            <div className="shorts-meta">
-                              <span className="chip">{entry.dayLabel}</span>
-                              <span className="chip">{entry.contentType}</span>
-                              <span className="chip">{entry.primaryChannel}</span>
-                            </div>
-                            <button type="button" className="timestamp-button" onClick={() => void handleOpenTimestamp(entry.seconds ?? analysis.summary.chapters.find((chapter) => chapter.timeLabel === entry.timeLabel)?.seconds ?? null)}>
-                              {entry.timeLabel}
-                            </button>
-                          </div>
-                          <strong>{entry.title}</strong>
-                          <p>{entry.hook}</p>
-                          <div className="planner-foot">
-                            <span>Repurpose: {entry.repurposeTo.join(", ")}</span>
-                            <span>Action: {entry.action}</span>
-                          </div>
-                        </article>
-                      )) : <p className="empty-copy">No planner days match this channel filter. Switch back to All Channels to restore the full schedule.</p>}
-                    </div>
-                  </article>
-                  <article className="summary-block timestamp-search-block">
-                    <div className="section-header">
-                      <div>
-                        <h3>Search Moments</h3>
-                        <p>Find the exact transcript moment and jump back to the source clip.</p>
-                      </div>
-                      <span className="meta-text">{timestampSearch.trim() ? `${timestampMatches.length} Matches` : `${analysis.summary.stats.timestampCount} Timestamps Ready`}</span>
-                    </div>
-                    <label className="field field-stack">
-                      <span>Search Transcript</span>
-                      <input value={timestampSearch} onChange={(event) => setTimestampSearch(event.target.value)} placeholder="Search promise, filler, review, retention, hook..." />
-                    </label>
-                    <div className="chip-row search-chip-row">
-                      {analysis.summary.keywords.slice(0, 5).map((keyword) => (
-                        <button key={keyword} type="button" className={`chip-action ${timestampSearch.trim().toLowerCase() === keyword.toLowerCase() ? "is-active" : ""}`} onClick={() => setTimestampSearch(keyword)}>
-                          {keyword}
-                        </button>
-                      ))}
-                      {timestampSearch.trim() ? <button type="button" className="chip-action" onClick={() => setTimestampSearch("")}>Clear Search</button> : null}
-                    </div>
-                    <div className="timestamp-search-list">
-                      {timestampSearch.trim() ? (
-                        timestampMatches.length > 0 ? timestampMatches.map((match) => (
-                          <article key={`${match.timeLabel}-${match.text}`} className="timestamp-search-item">
-                            <button type="button" className="timestamp-button" onClick={() => void handleOpenTimestamp(match.seconds)}>
-                              {match.timeLabel}
-                            </button>
-                            <div>
-                              <strong>Transcript Match</strong>
-                              <p>{match.text}</p>
-                            </div>
-                          </article>
-                        )) : <p className="empty-copy">No timestamp matches found. Try a shorter keyword or use one of the suggested chips.</p>
-                      ) : analysis.summary.chapters.map((chapter) => (
-                        <article key={`${chapter.timeLabel}-search-preview`} className="timestamp-search-item">
-                          <button type="button" className="timestamp-button" onClick={() => void handleOpenTimestamp(chapter.seconds)}>
-                            {chapter.timeLabel}
-                          </button>
-                          <div>
-                            <strong>{chapter.title}</strong>
-                            <p>{chapter.summary}</p>
-                          </div>
-                        </article>
-                      ))}
-                    </div>
-                  </article>
-                  <article className="summary-block"><h3>Title Ideas</h3><ul className="plain-list">{analysis.packagingIdeas.titles.map((idea) => <li key={idea}>{idea}</li>)}</ul></article>
-                  <article className="summary-block"><h3>Thumbnail Text</h3><div className="chip-row">{analysis.packagingIdeas.thumbnails.map((idea) => <span key={idea} className="chip">{idea}</span>)}</div></article>
-                  <article className="summary-block"><h3>Hook Lines</h3><ul className="plain-list">{analysis.packagingIdeas.hooks.map((idea) => <li key={idea}>{idea}</li>)}</ul></article>
-                  <article className="summary-block"><h3>Content Ideas</h3><ul className="plain-list">{analysis.contentIdeas.map((idea) => <li key={idea}>{idea}</li>)}</ul></article>
-                  <article className="summary-block"><h3>Business Ideas</h3><ul className="plain-list">{analysis.businessIdeas.map((idea) => <li key={idea}>{idea}</li>)}</ul></article>
-                  <article className="summary-block"><h3>Tools And Names Mentioned</h3><div className="chip-row">{analysis.toolsMentioned.length === 0 ? <span className="chip">No Obvious Tools Detected</span> : analysis.toolsMentioned.map((item) => <span key={item} className="chip">{item}</span>)}</div></article>
-                  <article className="summary-block"><h3>Title Analyzer</h3><div className="score-badge">Title Score: {analysis.titleScore}/100</div><ul className="plain-list">{analysis.titleNotes.map((note) => <li key={note}>{note}</li>)}</ul></article>
-                </div>
-              ) : insightTab === "exports" ? (
-                <div className="export-grid">
-                  {isProMode ? <article className="summary-block pro-control-card quick-export-card">
-                    <div className="section-header">
-                      <div>
-                        <h3>Quick Export Deck</h3>
-                        <p>Jump between the highest-value Pro outputs without hunting through dropdowns.</p>
-                      </div>
-                      <span className="meta-text">{COPY_FORMAT_OPTIONS.find((option) => option.value === copyFormat)?.label ?? "Preview"}</span>
-                    </div>
-                    <div className="quick-export-grid">
-                      {PRO_QUICK_EXPORTS.map((format) => (
-                        <button key={format} type="button" className={`chip-action ${copyFormat === format ? "is-active" : ""}`} onClick={() => handleProQuickExport(format)}>
-                          {COPY_FORMAT_OPTIONS.find((option) => option.value === format)?.label ?? format}
-                        </button>
-                      ))}
-                    </div>
-                  </article> : null}
-                  <article className="summary-block"><h3>Copy Preview</h3><textarea className="export-preview" value={copyPreview} readOnly /></article>
-                  <article className="summary-block"><h3>Export Preview</h3><textarea className="export-preview" value={exportPreview} readOnly /></article>
-                  <article className="summary-block">
-                    <h3>YouTube Description Generator</h3>
-                    <div className="chip-row">
-                      {analysis.descriptionHashtags.map((tag) => <span key={tag} className="chip">{tag}</span>)}
-                    </div>
-                    <textarea className="export-preview description-preview" value={analysis.youtubeDescription} readOnly />
-                  </article>
-                  <article className="summary-block">
-                    <h3>Chapter Pack</h3>
-                    <textarea className="export-preview description-preview" value={analysis.renamedChapters.join("\n")} readOnly />
-                  </article>
-                  {isProMode ? <article className="summary-block">
-                    <div className="section-header">
-                      <div>
-                        <h3>Content Calendar</h3>
-                        <p>Your weekly publishing plan across long-form, shorts, repurposing, and review.</p>
-                      </div>
-                      <span className="meta-text">{analysis.contentCalendar.length} Days Planned</span>
-                    </div>
-                    <textarea className="export-preview description-preview" value={analysis.calendarPlan} readOnly />
-                  </article> : null}
-                  {isProMode ? <article className="summary-block">
-                    <div className="section-header">
-                      <div>
-                        <h3>Repurposing Packs</h3>
-                        <p>Platform-specific drafts for fast posting across LinkedIn, X, newsletter, and Instagram.</p>
-                      </div>
-                      <span className="meta-text">4 Platforms</span>
-                    </div>
-                    <div className="repurpose-grid">
-                      <article className="repurpose-card">
-                        <strong>LinkedIn</strong>
-                        <textarea className="export-preview repurpose-preview" value={analysis.platformPacks.linkedin} readOnly />
-                      </article>
-                      <article className="repurpose-card">
-                        <strong>X Thread</strong>
-                        <textarea className="export-preview repurpose-preview" value={analysis.platformPacks.thread} readOnly />
-                      </article>
-                      <article className="repurpose-card">
-                        <strong>Newsletter</strong>
-                        <textarea className="export-preview repurpose-preview" value={analysis.platformPacks.newsletter} readOnly />
-                      </article>
-                      <article className="repurpose-card">
-                        <strong>Instagram</strong>
-                        <textarea className="export-preview repurpose-preview" value={analysis.platformPacks.instagram} readOnly />
-                      </article>
-                    </div>
-                  </article> : null}
-                  {isProMode ? <article className="summary-block">
-                    <div className="section-header">
-                      <div>
-                        <h3>Full Upload Pack</h3>
-                        <p>One bundle for titles, hooks, chapters, description, shorts, and viral moments.</p>
-                      </div>
-                      <span className="meta-text">{analysis.packagingIdeas.titles.length + analysis.shortsIdeas.length + analysis.clipMoments.length + analysis.contentCalendar.length} Assets</span>
-                    </div>
-                    <textarea className="export-preview description-preview" value={analysis.uploadPack} readOnly />
-                  </article> : null}
-                </div>
-              ) : (
-                <div className="chat-grid"><article className="summary-block"><h3>Ask The Transcript</h3><textarea className="chat-question" value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="What Is The Core Strategy? What Tools Were Mentioned?" /><div className="button-row"><button type="button" className="primary-button" onClick={() => { setAnswer(buildQuestionAnswer(question, analysis)); showStatus("Answered", "success"); }}>Ask Transcript</button></div></article><article className="summary-block"><h3>Answer</h3><pre className="chat-answer">{answer || "Answers Will Appear Here."}</pre></article></div>
-              )}
-            </section>
-          </div> : null}
-
-          {activeView === "library" ? <section className="simple-card">
-            <div className="section-header"><div><h2>Library</h2></div><span className="meta-text">{visibleLibraryItemCount} Items Shown</span></div>
-            <label className="field"><span>Search History</span><input value={historySearch} onChange={(event) => setHistorySearch(event.target.value)} placeholder={librarySearchPlaceholder} /></label>
-            <div className="saved-library-section">
-              <div className="section-header">
-                <div>
-                  <h3>Saved Briefs</h3>
-                  <p>Single-video transcript work you saved earlier.</p>
-                </div>
-                <span className="meta-text">{filteredBriefs.length} Shown</span>
+              <div className="cipher-topbar-actions">
+                <button type="button" className="cipher-action-button" onClick={() => void handleTopbarExport()} disabled={!canExportCurrentView}>Export</button>
+                <button type="button" className="cipher-action-button is-primary" onClick={() => void handleTopbarSaveReport()} disabled={!canSaveCurrentView}>Save Report</button>
               </div>
-              {filteredBriefs.length === 0 ? <p className="empty-copy">No Matching Saved Briefs Yet.</p> : <div className="saved-list">{filteredBriefs.map((brief) => <article key={brief.id} className={`saved-item ${activeBriefId === brief.id ? "is-active" : ""}`}><button type="button" className="saved-open" onClick={() => { setActiveView("studio"); setWorkspaceMode("single"); setVideoTitle(brief.title); setVideoUrl(brief.url); setTranscript(brief.transcript); setAnalysis(brief.analysis); setSummaryStyle(brief.summaryStyle); setAudiencePreset(brief.audiencePreset); setOutputLanguage(brief.outputLanguage); setActiveBriefId(brief.id); showStatus("Brief Loaded", "success"); }}><strong>{brief.title}</strong><span>{formatCreatedAt(brief.createdAt)}</span></button><button type="button" className="link-button danger-button" onClick={() => setBriefs((current) => current.filter((item) => item.id !== brief.id))}>Delete</button></article>)}</div>}
+            </header>
+
+            <div className="cipher-content-area">
+              {renderMainView()}
             </div>
-            {isProMode ? <div className="saved-library-section">
-              <div className="section-header">
-                <div>
-                  <h3>Channel Reports</h3>
-                  <p>Reload saved Deep Dives and competitor compares without rerunning fetches.</p>
-                </div>
-                <span className="meta-text">{filteredChannelReports.length} Shown</span>
-              </div>
-              {filteredChannelReports.length === 0 ? <p className="empty-copy">No Matching Reports Yet.</p> : <div className="saved-list">{filteredChannelReports.map((report) => <article key={report.id} className="saved-item"><button type="button" className="saved-open" onClick={() => handleLoadSavedChannelReport(report)}><strong>{report.title}</strong><span>{buildSavedReportMeta(report)}</span></button><button type="button" className="link-button danger-button" onClick={() => setSavedChannelReports((current) => current.filter((item) => item.id !== report.id))}>Delete</button></article>)}</div>}
-            </div> : null}
-            {isProMode ? <div className="saved-library-section">
-              <div className="section-header">
-                <div>
-                  <h3>Sample Presets</h3>
-                  <p>Reusable main and compare video selections for recurring audits and client work.</p>
-                </div>
-                <span className="meta-text">{filteredChannelPresets.length} Shown</span>
-              </div>
-              {filteredChannelPresets.length === 0 ? <p className="empty-copy">No Matching Presets Yet.</p> : <div className="saved-list">{filteredChannelPresets.map((preset) => <article key={preset.id} className="saved-item"><button type="button" className="saved-open" onClick={() => handleLoadChannelPreset(preset)}><strong>{preset.name}</strong><span>{formatCreatedAt(preset.createdAt)} | {preset.selectedChannelVideoIds.length} main | {preset.selectedCompareVideoIds.length} compare</span></button><button type="button" className="link-button danger-button" onClick={() => setSavedChannelPresets((current) => current.filter((item) => item.id !== preset.id))}>Delete</button></article>)}</div>}
-            </div> : null}
-          </section> : null}
-        </section>
-      </div>
-    </main>
+          </section>
+        </div>
+      </main>
+    </AppErrorBoundary>
   );
 }
+

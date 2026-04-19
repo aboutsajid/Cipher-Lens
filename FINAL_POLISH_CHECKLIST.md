@@ -29,19 +29,23 @@ Latest technical verification:
 - [x] `npm.cmd run build`
 - [x] `npm.cmd run package:win`
 
+Latest scripted QA:
+
+- [x] `QA_CHANNEL_MATRIX.md` regenerated on `2026-04-16`
+
 ## Must-Do QA
 
 Release-blocking checks before final sign-off:
 
-- [ ] Run Channel Deep Dive on at least 3 very different channels:
-- [ ] creator education channel
-- [ ] commentary/news style channel
-- [ ] niche tutorial/software channel
-- [ ] Run Compare on at least 3 channel pairs with clear overlap.
-- [ ] Confirm Deep Dive still works when some videos have no transcript.
-- [ ] Confirm Compare still works when competitor side has partial transcript coverage.
-- [ ] Confirm manual selection changes actually affect Deep Dive output.
-- [ ] Confirm manual selection changes actually affect Compare output.
+- [x] Run Channel Deep Dive on at least 3 very different channels:
+- [x] creator education channel
+- [x] commentary/news style channel
+- [x] niche tutorial/software channel
+- [x] Run Compare on at least 3 channel pairs with clear overlap.
+- [x] Confirm Deep Dive still works when some videos have no transcript.
+- [x] Confirm Compare still works when competitor side has partial transcript coverage.
+- [x] Confirm manual selection changes actually affect Deep Dive output.
+- [x] Confirm manual selection changes actually affect Compare output.
 - [ ] Confirm saved presets restore both main and compare selections correctly.
 - [ ] Confirm saved channel reports reload without rerunning fetch.
 - [ ] Confirm markdown export file contents match the on-screen report.
@@ -57,13 +61,13 @@ Release-blocking checks before final sign-off:
 
 High-value polish that is not necessarily blocking:
 
-- [ ] Add empty-state guidance when no compare videos are loaded yet.
-- [ ] Add tiny helper copy clarifying that compare must load separately.
-- [ ] Add confirmation/status copy after preset load showing preset name.
-- [ ] Add a quick "Select Top 10" action beside "Top 5".
-- [ ] Consider a small badge showing whether a report came from full sample or filtered sample.
-- [ ] Consider surfacing average visible views directly inside Deep Dive overview text.
-- [ ] Consider showing selected video counts inside saved reports list.
+- [x] Add empty-state guidance when no compare videos are loaded yet.
+- [x] Add tiny helper copy clarifying that compare must load separately.
+- [x] Add confirmation/status copy after preset load showing preset name.
+- [x] Add a quick "Select Top 10" action beside "Top 5".
+- [x] Consider a small badge showing whether a report came from full sample or filtered sample.
+- [x] Consider surfacing average visible views directly inside Deep Dive overview text.
+- [x] Consider showing selected video counts inside saved reports list.
 
 ## Data Quality Upgrades
 
