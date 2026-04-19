@@ -2976,46 +2976,74 @@ export default function App() {
       `${projectCount} total projects`,
     ];
 
-    return renderModeShell({
-      eyebrow: "Saved Reports",
-      title: "Saved research and reusable setups",
-      description: libraryDescription,
-      badges: libraryBadges,
-      metrics: libraryMetrics,
-      body: (
-        <LibraryPage
-          activeBriefId={activeBriefId}
-          filteredBriefs={libraryBriefs}
-          filteredChannelPresets={libraryPresets}
-          filteredChannelReports={libraryReports}
-          filteredProjects={libraryProjects}
-          formatCreatedAt={formatCreatedAt}
-          historySearch={historySearch}
-          isProMode={isProMode}
-          librarySearchPlaceholder={librarySearchPlaceholder}
-          visibleLibraryItemCount={visibleLibraryItemCount}
-          onDeleteBrief={(id) => setBriefs((current) => current.filter((item) => item.id !== id))}
-          onDeleteProject={handleDeleteProject}
-          onDeletePreset={(id) => setSavedChannelPresets((current) => current.filter((item) => item.id !== id))}
-          onDeleteReport={(id) => setSavedChannelReports((current) => current.filter((item) => item.id !== id))}
-          onHistorySearchChange={setHistorySearch}
-          onLoadProject={handleLoadProject}
-          onRenameProject={handleRenameProject}
-          onLoadBrief={(id) => {
-            const brief = briefs.find((item) => item.id === id);
-            if (brief) handleLoadBrief(brief);
-          }}
-          onLoadPreset={(id) => {
-            const preset = savedChannelPresets.find((item) => item.id === id);
-            if (preset) handleLoadChannelPreset(preset);
-          }}
-          onLoadReport={(id) => {
-            const report = savedChannelReports.find((item) => item.id === id);
-            if (report) handleLoadSavedChannelReport(report);
-          }}
-        />
-      ),
-    });
+    return (
+      <div className="vi-shell">
+        <aside className="vi-section-panel">
+          <div className="vi-section-header">
+            <div className="vi-section-eyebrow">Library</div>
+            <div className="vi-section-title">Saved Assets</div>
+            <div className="vi-chip-row">
+              <span className="cipher-chip">{projectCount} saved</span>
+            </div>
+          </div>
+          <div className="vi-section-list">
+            {(["overview", "projects", "briefs", "presets", "reports"] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                className={`vi-section-item ${librarySection === s ? "is-active" : ""}`}
+                onClick={() => setLibrarySection(s)}
+              >
+                {s.charAt(0).toUpperCase() + s.slice(1)}
+              </button>
+            ))}
+          </div>
+        </aside>
+        <div className="vi-main">
+          {renderModeShell({
+            eyebrow: "Saved Reports",
+            title: "Saved research and reusable setups",
+            description: libraryDescription,
+            badges: libraryBadges,
+            metrics: libraryMetrics,
+            body: (
+              <LibraryPage
+                activeBriefId={activeBriefId}
+                activeSection={librarySection}
+                filteredBriefs={libraryBriefs}
+                filteredChannelPresets={libraryPresets}
+                filteredChannelReports={libraryReports}
+                filteredProjects={libraryProjects}
+                formatCreatedAt={formatCreatedAt}
+                historySearch={historySearch}
+                isProMode={isProMode}
+                librarySearchPlaceholder={librarySearchPlaceholder}
+                visibleLibraryItemCount={visibleLibraryItemCount}
+                onDeleteBrief={(id) => setBriefs((current) => current.filter((item) => item.id !== id))}
+                onDeleteProject={handleDeleteProject}
+                onDeletePreset={(id) => setSavedChannelPresets((current) => current.filter((item) => item.id !== id))}
+                onDeleteReport={(id) => setSavedChannelReports((current) => current.filter((item) => item.id !== id))}
+                onHistorySearchChange={setHistorySearch}
+                onLoadProject={handleLoadProject}
+                onRenameProject={handleRenameProject}
+                onLoadBrief={(id) => {
+                  const brief = briefs.find((item) => item.id === id);
+                  if (brief) handleLoadBrief(brief);
+                }}
+                onLoadPreset={(id) => {
+                  const preset = savedChannelPresets.find((item) => item.id === id);
+                  if (preset) handleLoadChannelPreset(preset);
+                }}
+                onLoadReport={(id) => {
+                  const report = savedChannelReports.find((item) => item.id === id);
+                  if (report) handleLoadSavedChannelReport(report);
+                }}
+              />
+            ),
+          })}
+        </div>
+      </div>
+    );
   }
 
   function renderExportsWorkspace() {
