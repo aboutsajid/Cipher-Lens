@@ -2978,23 +2978,36 @@ export default function App() {
 
     return (
       <div className="vi-shell">
-        <aside className="vi-section-panel">
-          <div className="vi-section-header">
-            <div className="vi-section-eyebrow">Library</div>
-            <div className="vi-section-title">Saved Assets</div>
-            <div className="vi-chip-row">
+        <aside className="vi-section-panel cipher-section-panel">
+          <div className="cipher-section-header">
+            <div className="cipher-section-eyebrow">Library</div>
+            <div className="cipher-section-channel">Saved Assets</div>
+            <div className="cipher-chip-row">
               <span className="cipher-chip">{projectCount} saved</span>
             </div>
           </div>
-          <div className="vi-section-list">
+          <div className="cipher-section-list">
             {(["overview", "projects", "briefs", "presets", "reports"] as const).map((s) => (
               <button
                 key={s}
                 type="button"
-                className={`vi-section-item ${librarySection === s ? "is-active" : ""}`}
+                className={`cipher-section-item ${librarySection === s ? "is-active" : ""}`}
                 onClick={() => setLibrarySection(s)}
               >
-                {s.charAt(0).toUpperCase() + s.slice(1)}
+                <span className="cipher-section-icon">
+                  {renderLayoutIcon(
+                    s === "overview"
+                      ? "overview"
+                      : s === "projects"
+                        ? "saved"
+                        : s === "briefs"
+                          ? "library"
+                          : s === "presets"
+                            ? "clone"
+                            : "export",
+                  )}
+                </span>
+                <span>{s.charAt(0).toUpperCase() + s.slice(1)}</span>
               </button>
             ))}
           </div>
@@ -3165,6 +3178,137 @@ export default function App() {
     });
   }
 
+  function renderStudioWorkspace() {
+    const activeStudioSectionLabel = viSection === "input" ? "Input" : INSIGHT_TAB_LABELS[viSection];
+    const studioMetrics: ModeMetric[] = [
+      {
+        label: "Transcript Words",
+        value: `${transcriptWordCount}`,
+        note: transcriptSource ? "loaded transcript words" : "manual or sample transcript",
+      },
+      {
+        label: "Active Section",
+        value: activeStudioSectionLabel,
+        note: "current video intel workspace section",
+      },
+      {
+        label: "Workspace Mode",
+        value: WORKSPACE_MODE_LABELS[workspaceMode],
+        note: workspaceMode === "batch" ? "batch pipeline is available" : "single-video workflow is active",
+      },
+      {
+        label: "Transcript Source",
+        value: transcriptSource ? "Ready" : "Pending",
+        note: transcriptSource ? "youtube transcript has been loaded" : canFetchTranscript ? "ready to fetch from URL" : "paste transcript text or add a URL",
+      },
+    ];
+    const studioDescription = viSection === "input"
+      ? "Load a video, fetch or paste transcript text, and tune the brief inputs in one command surface."
+      : "Review summaries, insights, exports, and transcript chat inside the same structured workspace.";
+    const studioBadges = [
+      videoUrl.trim() ? "url ready" : "url pending",
+      transcriptSource ? "transcript ready" : "transcript pending",
+      `${summaryStyle} summary`,
+    ];
+
+    return renderModeShell({
+      eyebrow: "Video Intel",
+      title: videoTitle || "No Video Loaded",
+      description: studioDescription,
+      badges: studioBadges,
+      metrics: studioMetrics,
+      body: viSection === "input" ? (
+        <article className="cipher-view-card cipher-setup-card">
+          <div className="cipher-card-title">Input Studio</div>
+          <VideoIntelWorkspace
+            audiencePreset={audiencePreset}
+            availableCopyFormats={availableCopyFormats}
+            batchInput={batchInput}
+            batchResults={batchResults}
+            busy={busy}
+            canFetchTranscript={canFetchTranscript}
+            canGenerate={canGenerate}
+            canImportFile={canImportFile}
+            cleaner={cleaner}
+            copyFormat={copyFormat}
+            exportFormat={exportFormat}
+            isPending={isPending}
+            isProMode={isProMode}
+            languageOptions={LANGUAGE_OPTIONS}
+            outputLanguage={outputLanguage}
+            summaryStyle={summaryStyle}
+            transcript={transcript}
+            transcriptLanguage={transcriptLanguage}
+            transcriptSource={transcriptSource}
+            videoTitle={videoTitle}
+            videoUrl={videoUrl}
+            workspaceMode={workspaceMode}
+            onAudiencePresetChange={setAudiencePreset}
+            onBatchInputChange={setBatchInput}
+            onCleanerChange={setCleaner}
+            onCleanTranscript={handleCleanTranscript}
+            onCopyFormatChange={setCopyFormat}
+            onExport={() => void handleExport()}
+            onExportFormatChange={setExportFormat}
+            onFetch={(generate) => void handleFetch(generate)}
+            onGenerateFromText={handleGenerateFromText}
+            onImportTranscript={() => void handleImportTranscript()}
+            onLoadBatchItem={handleLoadBatchResult}
+            onLoadSample={handleLoadStudioSample}
+            onOutputLanguageChange={setOutputLanguage}
+            onRunBatch={() => void handleRunBatch()}
+            onSave={handleSave}
+            onSaveCopy={() => void handleCopy()}
+            onSetTranscript={setTranscript}
+            onSetTranscriptLanguage={setTranscriptLanguage}
+            onSetVideoTitle={setVideoTitle}
+            onSetVideoUrl={setVideoUrl}
+            onSummaryStyleChange={setSummaryStyle}
+            onResetWorkspace={handleClearStudioWorkspace}
+          />
+        </article>
+      ) : (
+        <article className="cipher-view-card cipher-setup-card">
+          <div className="cipher-card-title">{activeStudioSectionLabel}</div>
+          <VideoIntelInsights
+            analysis={analysis}
+            answer={answer}
+            copyFormat={copyFormat}
+            copyPreview={copyPreview}
+            exportPreview={exportPreview}
+            filteredClipMoments={filteredClipMoments}
+            filteredContentCalendar={filteredContentCalendar}
+            insightTab={viSection}
+            insightTabLabels={INSIGHT_TAB_LABELS}
+            isProMode={isProMode}
+            plannerChannelFilter={plannerChannelFilter}
+            plannerChannelOptions={plannerChannelOptions}
+            plannerLead={plannerLead}
+            proClipScoreFloor={proClipScoreFloor}
+            question={question}
+            repurposeReach={repurposeReach}
+            strategicTrack={strategicTrack}
+            strongestClip={strongestClip}
+            timestampMatches={timestampMatches}
+            timestampSearch={timestampSearch}
+            visibleInsightTabs={visibleInsightTabs}
+            onAskTranscript={handleAskTranscript}
+            onInsightTabChange={(tab) => {
+              setInsightTab(tab);
+              setViSection(tab);
+            }}
+            onOpenTimestamp={(seconds) => void handleOpenTimestamp(seconds)}
+            onPlannerChannelFilterChange={setPlannerChannelFilter}
+            onProClipScoreFloorChange={setProClipScoreFloor}
+            onQuestionChange={setQuestion}
+            onQuickExport={handleProQuickExport}
+            onTimestampSearchChange={setTimestampSearch}
+          />
+        </article>
+      ),
+    });
+  }
+
   function renderMainView() {
     if (activeView === "channel") {
       return renderAnalyzeSectionContent();
@@ -3184,130 +3328,53 @@ export default function App() {
     if (activeView === "studio") {
       return (
         <div className="vi-shell">
-          <aside className="vi-section-panel">
-            <div className="vi-section-header">
-              <div className="vi-section-eyebrow">Video Intel</div>
-              <div className="vi-section-title">{videoTitle || "No Video Loaded"}</div>
-              <div className="vi-chip-row">
+          <aside className="vi-section-panel cipher-section-panel">
+            <div className="cipher-section-header">
+              <div className="cipher-section-eyebrow">Video Intel</div>
+              <div className="cipher-section-channel">{videoTitle || "No Video Loaded"}</div>
+              <div className="cipher-chip-row">
                 <span className="cipher-chip">{transcriptWordCount} words</span>
                 <span className="cipher-chip">{transcriptSource ? "transcript ready" : "no transcript"}</span>
               </div>
             </div>
-            <div className="vi-section-list">
-              <button type="button" className={`vi-section-item ${viSection === "input" ? "is-active" : ""}`} onClick={() => setViSection("input")}>
-                Input
+            <div className="cipher-section-list">
+              <button type="button" className={`cipher-section-item ${viSection === "input" ? "is-active" : ""}`} onClick={() => setViSection("input")}>
+                <span className="cipher-section-icon">{renderLayoutIcon("overview")}</span>
+                <span>Input</span>
               </button>
-              <button type="button" className={`vi-section-item ${viSection === "summary" ? "is-active" : ""}`} onClick={() => {
+              <button type="button" className={`cipher-section-item ${viSection === "summary" ? "is-active" : ""}`} onClick={() => {
                 setViSection("summary");
                 setInsightTab("summary");
               }}>
-                Summary
+                <span className="cipher-section-icon">{renderLayoutIcon("saved")}</span>
+                <span>Summary</span>
               </button>
-              <button type="button" className={`vi-section-item ${viSection === "insights" ? "is-active" : ""}`} onClick={() => {
+              <button type="button" className={`cipher-section-item ${viSection === "insights" ? "is-active" : ""}`} onClick={() => {
                 setViSection("insights");
                 setInsightTab("insights");
               }}>
-                Insights
+                <span className="cipher-section-icon">{renderLayoutIcon("seo")}</span>
+                <span>Insights</span>
               </button>
-              <button type="button" className={`vi-section-item ${viSection === "exports" ? "is-active" : ""}`} onClick={() => {
+              <button type="button" className={`cipher-section-item ${viSection === "exports" ? "is-active" : ""}`} onClick={() => {
                 setViSection("exports");
                 setInsightTab("exports");
               }}>
-                Exports
+                <span className="cipher-section-icon">{renderLayoutIcon("export")}</span>
+                <span>Exports</span>
               </button>
-              <button type="button" className={`vi-section-item ${viSection === "chat" ? "is-active" : ""}`} onClick={() => {
+              <button type="button" className={`cipher-section-item ${viSection === "chat" ? "is-active" : ""}`} onClick={() => {
                 setViSection("chat");
                 setInsightTab("chat");
               }}>
-                Chat
+                <span className="cipher-section-icon">{renderLayoutIcon("compare")}</span>
+                <span>Chat</span>
               </button>
             </div>
           </aside>
 
           <div className="vi-main">
-            {viSection === "input" ? (
-              <VideoIntelWorkspace
-                audiencePreset={audiencePreset}
-                availableCopyFormats={availableCopyFormats}
-                batchInput={batchInput}
-                batchResults={batchResults}
-                busy={busy}
-                canFetchTranscript={canFetchTranscript}
-                canGenerate={canGenerate}
-                canImportFile={canImportFile}
-                cleaner={cleaner}
-                copyFormat={copyFormat}
-                exportFormat={exportFormat}
-                isPending={isPending}
-                isProMode={isProMode}
-                languageOptions={LANGUAGE_OPTIONS}
-                outputLanguage={outputLanguage}
-                summaryStyle={summaryStyle}
-                transcript={transcript}
-                transcriptLanguage={transcriptLanguage}
-                transcriptSource={transcriptSource}
-                videoTitle={videoTitle}
-                videoUrl={videoUrl}
-                workspaceMode={workspaceMode}
-                onAudiencePresetChange={setAudiencePreset}
-                onBatchInputChange={setBatchInput}
-                onCleanerChange={setCleaner}
-                onCleanTranscript={handleCleanTranscript}
-                onCopyFormatChange={setCopyFormat}
-                onExport={() => void handleExport()}
-                onExportFormatChange={setExportFormat}
-                onFetch={(generate) => void handleFetch(generate)}
-                onGenerateFromText={handleGenerateFromText}
-                onImportTranscript={() => void handleImportTranscript()}
-                onLoadBatchItem={handleLoadBatchResult}
-                onLoadSample={handleLoadStudioSample}
-                onOutputLanguageChange={setOutputLanguage}
-                onRunBatch={() => void handleRunBatch()}
-                onSave={handleSave}
-                onSaveCopy={() => void handleCopy()}
-                onSetTranscript={setTranscript}
-                onSetTranscriptLanguage={setTranscriptLanguage}
-                onSetVideoTitle={setVideoTitle}
-                onSetVideoUrl={setVideoUrl}
-                onSummaryStyleChange={setSummaryStyle}
-                onResetWorkspace={handleClearStudioWorkspace}
-              />
-            ) : (
-              <VideoIntelInsights
-                analysis={analysis}
-                answer={answer}
-                copyFormat={copyFormat}
-                copyPreview={copyPreview}
-                exportPreview={exportPreview}
-                filteredClipMoments={filteredClipMoments}
-                filteredContentCalendar={filteredContentCalendar}
-                insightTab={viSection}
-                insightTabLabels={INSIGHT_TAB_LABELS}
-                isProMode={isProMode}
-                plannerChannelFilter={plannerChannelFilter}
-                plannerChannelOptions={plannerChannelOptions}
-                plannerLead={plannerLead}
-                proClipScoreFloor={proClipScoreFloor}
-                question={question}
-                repurposeReach={repurposeReach}
-                strategicTrack={strategicTrack}
-                strongestClip={strongestClip}
-                timestampMatches={timestampMatches}
-                timestampSearch={timestampSearch}
-                visibleInsightTabs={visibleInsightTabs}
-                onAskTranscript={handleAskTranscript}
-                onInsightTabChange={(tab) => {
-                  setInsightTab(tab);
-                  setViSection(tab);
-                }}
-                onOpenTimestamp={(seconds) => void handleOpenTimestamp(seconds)}
-                onPlannerChannelFilterChange={setPlannerChannelFilter}
-                onProClipScoreFloorChange={setProClipScoreFloor}
-                onQuestionChange={setQuestion}
-                onQuickExport={handleProQuickExport}
-                onTimestampSearchChange={setTimestampSearch}
-              />
-            )}
+            {renderStudioWorkspace()}
           </div>
         </div>
       );

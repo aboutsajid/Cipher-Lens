@@ -79,17 +79,11 @@ export function LibraryPage({
   onLoadPreset,
   onLoadReport,
 }: LibraryPageProps) {
-  const showOverview = activeSection === "overview";
-  const showProjects = activeSection === "projects";
-  const showBriefs = activeSection === "briefs";
-  const showReports = activeSection === "reports";
-  const showPresets = activeSection === "presets";
-
   return (
     <section className="simple-card">
       <div className="section-header"><div><h2>Library</h2></div><span className="meta-text">{visibleLibraryItemCount} Items Shown</span></div>
-      {!showOverview ? <label className="field"><span>Search History</span><input value={historySearch} onChange={(event) => onHistorySearchChange(event.target.value)} placeholder={librarySearchPlaceholder} /></label> : null}
-      {showOverview && (
+      {activeSection !== "overview" ? <label className="field"><span>Search History</span><input value={historySearch} onChange={(event) => onHistorySearchChange(event.target.value)} placeholder={librarySearchPlaceholder} /></label> : null}
+      {activeSection === "overview" && (
         <section className="cipher-stats-grid">
           <article className="cipher-stat-card">
             <span className="cipher-stat-label">Projects</span>
@@ -113,7 +107,7 @@ export function LibraryPage({
           </article>
         </section>
       )}
-      {showProjects && <section className="saved-library-section">
+      {activeSection === "projects" && <section className="saved-library-section">
         <div className="section-header">
           <div>
             <h3>Projects</h3>
@@ -123,7 +117,7 @@ export function LibraryPage({
         </div>
         {filteredProjects.length === 0 ? <p className="empty-copy">No Matching Projects Yet.</p> : <div className="saved-list">{filteredProjects.map((project) => <article key={project.id} className="saved-item"><button type="button" className="saved-open" onClick={() => onLoadProject(project.id)}><strong>{project.title}</strong><span>{formatProjectKind(project.kind)} | {formatCreatedAt(project.createdAt)}</span></button><div className="action-link-row"><button type="button" className="link-button command-link-button" onClick={() => onRenameProject(project.id)}>Rename</button><button type="button" className="link-button danger-button" onClick={() => onDeleteProject(project.id)}>Delete</button></div></article>)}</div>}
       </section>}
-      {showBriefs && <section className="saved-library-section">
+      {activeSection === "briefs" && <section className="saved-library-section">
         <div className="section-header">
           <div>
             <h3>Saved Briefs</h3>
@@ -133,7 +127,7 @@ export function LibraryPage({
         </div>
         {filteredBriefs.length === 0 ? <p className="empty-copy">No Matching Saved Briefs Yet.</p> : <div className="saved-list">{filteredBriefs.map((brief) => <article key={brief.id} className={`saved-item ${activeBriefId === brief.id ? "is-active" : ""}`}><button type="button" className="saved-open" onClick={() => onLoadBrief(brief.id)}><strong>{brief.title}</strong><span>{formatCreatedAt(brief.createdAt)}</span></button><button type="button" className="link-button danger-button" onClick={() => onDeleteBrief(brief.id)}>Delete</button></article>)}</div>}
       </section>}
-      {isProMode && showReports && <section className="saved-library-section">
+      {isProMode && activeSection === "reports" && <section className="saved-library-section">
         <div className="section-header">
           <div>
             <h3>Channel Reports</h3>
@@ -143,7 +137,7 @@ export function LibraryPage({
         </div>
         {filteredChannelReports.length === 0 ? <p className="empty-copy">No Matching Reports Yet.</p> : <div className="saved-list">{filteredChannelReports.map((report) => <article key={report.id} className="saved-item"><button type="button" className="saved-open" onClick={() => onLoadReport(report.id)}><strong>{report.title}</strong><span>{report.meta}</span></button><button type="button" className="link-button danger-button" onClick={() => onDeleteReport(report.id)}>Delete</button></article>)}</div>}
       </section>}
-      {isProMode && showPresets && <section className="saved-library-section">
+      {isProMode && activeSection === "presets" && <section className="saved-library-section">
         <div className="section-header">
           <div>
             <h3>Sample Presets</h3>

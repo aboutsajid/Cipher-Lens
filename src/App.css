@@ -3132,3 +3132,181 @@ body,
   flex-direction: column;
   gap: 12px;
 }
+
+.vi-section-panel {
+  background: var(--color-background-primary) !important;
+  border-right: 0.5px solid var(--color-border-tertiary) !important;
+}
+
+.vi-section-eyebrow {
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  color: var(--accent) !important;
+}
+
+.vi-section-title {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  color: var(--ink-strong) !important;
+  margin: 4px 0 8px !important;
+}
+
+.vi-chip-row .cipher-chip {
+  font-size: 11px !important;
+  padding: 2px 8px !important;
+  border-radius: 20px !important;
+  background: var(--color-background-secondary) !important;
+  border: 0.5px solid var(--color-border-tertiary) !important;
+  color: var(--ink-muted) !important;
+}
+
+.vi-section-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 9px 16px !important;
+  font-size: 13px !important;
+  color: var(--ink-muted) !important;
+  border: none !important;
+  background: transparent !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  width: 100% !important;
+  transition: background 0.12s, color 0.12s !important;
+  border-radius: 0 !important;
+}
+
+.vi-section-item:hover {
+  background: var(--color-background-secondary) !important;
+  color: var(--ink-strong) !important;
+}
+
+.vi-section-item.is-active {
+  background: var(--accent-soft) !important;
+  color: var(--accent-deep) !important;
+  font-weight: 500 !important;
+}
+
+.vi-section-panel {
+  display: flex !important;
+  flex-direction: column !important;
+  background: var(--color-background-primary) !important;
+  border-right: 0.5px solid var(--color-border-tertiary) !important;
+  overflow: hidden !important;
+}
+
+.vi-section-header {
+  padding: 14px 14px 10px !important;
+  border-bottom: 0.5px solid var(--color-border-tertiary) !important;
+}
+
+.vi-section-eyebrow {
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.06em !important;
+  color: var(--color-text-secondary) !important;
+}
+
+.vi-chip-row .cipher-chip {
+  padding: 2px 8px !important;
+  border-radius: 999px !important;
+  background: var(--color-background-secondary) !important;
+  border: 0.5px solid var(--color-border-tertiary) !important;
+  color: var(--color-text-secondary) !important;
+  font-size: 11px !important;
+}
+
+.vi-section-item {
+  width: 100% !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--color-text-secondary) !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 8px 14px !important;
+  text-align: left !important;
+  cursor: pointer !important;
+}
+
+.vi-section-item:hover {
+  background: var(--color-background-secondary) !important;
+  color: var(--color-text-primary) !important;
+}
+
+.vi-section-item.is-active {
+  background: #EFF6FF !important;
+  color: #3B82F6 !important;
+  border-radius: 8px !important;
+}
+
+.vi-section-panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-background-primary);
+  border-right: 0.5px solid var(--color-border-tertiary);
+  overflow: hidden;
+}
+
+.vi-section-header {
+  padding: 14px 14px 10px;
+  border-bottom: 0.5px solid var(--color-border-tertiary);
+}
+
+.vi-section-eyebrow {
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-secondary);
+}
+
+.vi-section-title {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vi-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.vi-chip-row .cipher-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-background-secondary);
+  border: 0.5px solid var(--color-border-tertiary);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+}
+
+.vi-section-item {
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vi-section-item.is-active {
+  background: #EFF6FF;
+  color: #3B82F6;
+  border-radius: 8px;
+}
