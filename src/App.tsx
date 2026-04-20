@@ -63,6 +63,7 @@ import {
 const STORAGE_KEY = "cipher-lens/briefs";
 const CHANNEL_REPORTS_STORAGE_KEY = "cipher-lens/channel-reports";
 const CHANNEL_PRESETS_STORAGE_KEY = "cipher-lens/channel-presets";
+const THEME_STORAGE_KEY = "cipher-lens/theme";
 const MAX_BRIEFS = 30;
 const MAX_CHANNEL_REPORTS = 20;
 const MAX_CHANNEL_PRESETS = 20;
@@ -1011,6 +1012,7 @@ function renderLayoutIcon(kind: "home" | "library" | "analyze" | "compare" | "sa
 }
 
 export default function App() {
+  const [theme, setTheme] = useState<"light" | "dark">("light");
   const [experienceMode, setExperienceMode] = useState<ExperienceMode>("basic");
   const [activeView, setActiveView] = useState<AppView>("home");
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>("single");
@@ -1400,6 +1402,30 @@ export default function App() {
     if (viSection === "input") return;
     if (viSection !== insightTab) setViSection(insightTab);
   }, [insightTab, viSection]);
+
+  useEffect(() => {
+    try {
+      const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+      if (storedTheme === "light" || storedTheme === "dark") {
+        setTheme(storedTheme);
+        return;
+      }
+    } catch {
+      // Fall back to system preference when local storage is unavailable.
+    }
+
+    const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+    setTheme(prefersDark ? "dark" : "light");
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // Ignore storage issues and keep the in-memory theme applied.
+    }
+  }, [theme]);
 
   useEffect(() => {
     const nextCompareSection = compareResultTabToSection(compareResultTab);
@@ -2505,12 +2531,17 @@ export default function App() {
     }
   }
 
-  const showAnalyzePanel = activeView === "channel";
+  const showAnalyzePanel = false;
   const currentChannelLabel = channelDeepDive?.channelLabel || channelUrl.trim() || "Channel Clone";
   const currentVideoCount = selectedChannelVideos.length > 0 ? selectedChannelVideos.length : channelVideos.length;
   const currentTranscriptCoverage = channelDeepDive?.transcriptCoverage ?? null;
   const breadcrumbToolName = TOOL_BREADCRUMB_LABELS[activeView];
-  const isHomeNavActive = activeView !== "library" && activeView !== "exports" && activeView !== "settings";
+  const isHomeNavActive = activeView === "home";
+  const isStudioNavActive = activeView === "studio";
+  const isChannelNavActive = activeView === "channel";
+  const isCompareNavActive = activeView === "compare";
+  const isAnalyticsNavActive = activeView === "analytics";
+  const isProjectsNavActive = activeView === "projects";
   const isLibraryNavActive = activeView === "library";
   const isExportNavActive = activeView === "exports";
   const isSettingsNavActive = activeView === "settings";
@@ -2554,6 +2585,14 @@ export default function App() {
       return;
     }
     showStatus("Nothing To Export Yet", "error");
+  }
+
+  function handleToggleTheme() {
+    setTheme((current) => {
+      const nextTheme = current === "dark" ? "light" : "dark";
+      showStatus(nextTheme === "dark" ? "Dark Mode Ready" : "Light Mode Ready", "success");
+      return nextTheme;
+    });
   }
 
   function renderAnalyzeArrayCard(title: string, items: string[], emptyCopy: string) {
@@ -2623,24 +2662,42 @@ export default function App() {
 
   function renderAnalyzeSectionShell(section: AnalyzePanelSection, cards: ReactNode) {
     const meta = ANALYZE_SECTIONS.find((item) => item.id === section) ?? ANALYZE_SECTIONS[0];
+    const analyzeMetrics: ModeMetric[] = [
+      {
+        label: "Sample Size",
+        value: channelDeepDive ? `${channelDeepDive.analyzedVideos}/${channelDeepDive.sourceVideoCount}` : `${currentVideoCount}`,
+        note: "selected / loaded videos",
+      },
+      {
+        label: "Transcript Coverage",
+        value: channelDeepDive ? `${channelDeepDive.transcriptCoverage}%` : "Pending",
+        note: "channel deep dive coverage",
+      },
+      {
+        label: "Avg Views",
+        value: channelDeepDive ? formatMetricCount(channelDeepDive.averageViewCount) : "Pending",
+        note: "visible average per selected upload",
+      },
+      {
+        label: "Active Section",
+        value: meta.label,
+        note: "current channel clone workspace section",
+      },
+    ];
+    const analyzeBadges = [
+      channelUrl.trim() ? "channel loaded" : "channel pending",
+      cloneChannel ? "clone brief ready" : "clone brief pending",
+      `${currentVideoCount} videos`,
+    ];
 
-    return (
-      <section className="cipher-analyze-grid">
-        <article className="cipher-view-card cipher-analyze-hero">
-          <div className="cipher-card-title">Channel Clone</div>
-          <div className="cipher-analyze-hero-copy">
-            <h2>{meta.label}</h2>
-            <p>{ANALYZE_SECTION_DESCRIPTIONS[section]}</p>
-          </div>
-          <div className="cipher-badge-row">
-            <span className="cipher-chip">{currentVideoCount} videos</span>
-            <span className="cipher-chip">{channelUrl.trim() ? "channel loaded" : "channel pending"}</span>
-            <span className="cipher-chip">{cloneChannel ? "clone brief ready" : "clone brief pending"}</span>
-          </div>
-        </article>
-        {cards}
-      </section>
-    );
+    return renderModeShell({
+      eyebrow: "Channel Clone",
+      title: currentChannelLabel,
+      description: ANALYZE_SECTION_DESCRIPTIONS[section],
+      badges: analyzeBadges,
+      metrics: analyzeMetrics,
+      body: cards,
+    });
   }
 
   function renderAnalyzeOverview() {
@@ -3311,7 +3368,31 @@ export default function App() {
 
   function renderMainView() {
     if (activeView === "channel") {
-      return renderAnalyzeSectionContent();
+      return (
+        <div className="vi-shell">
+          <aside className="vi-section-panel cipher-section-panel">
+            <div className="cipher-section-header">
+              <div className="cipher-section-eyebrow">Channel Clone</div>
+              <div className="cipher-section-channel">{currentChannelLabel}</div>
+              <div className="cipher-chip-row">
+                <span className="cipher-chip">{currentVideoCount} videos</span>
+                {currentTranscriptCoverage !== null ? <span className="cipher-chip">{currentTranscriptCoverage}% transcript</span> : null}
+              </div>
+            </div>
+            <div className="cipher-section-list">
+              {ANALYZE_SECTIONS.map((section) => (
+                <button key={section.id} type="button" className={`cipher-section-item ${analyzeSection === section.id ? "is-active" : ""}`} onClick={() => setAnalyzeSection(section.id)}>
+                  <span className="cipher-section-icon">{renderLayoutIcon(section.id)}</span>
+                  <span>{section.label}</span>
+                </button>
+              ))}
+            </div>
+          </aside>
+          <div className="vi-main">
+            {renderAnalyzeSectionContent()}
+          </div>
+        </div>
+      );
     }
     if (activeView === "compare" && isProMode) {
       return renderCompareWorkspace();
@@ -3381,50 +3462,94 @@ export default function App() {
     }
     if (activeView === "analytics" && isProMode) {
       return (
-        <StudioAnalyticsPage
-          benchmark={{
-            coverageLabel: benchmarkStudioCoverage,
-            importSummary: benchmarkStudioImport,
-            videos: benchmarkChannelVideos,
-          }}
-          busy={busy}
-          canImportAnalytics={canImportAnalytics}
-          compare={{
-            coverageLabel: compareStudioCoverage,
-            importSummary: compareStudioImport,
-            videos: compareChannelVideos,
-          }}
-          main={{
-            coverageLabel: mainStudioCoverage,
-            importSummary: mainStudioImport,
-            videos: channelVideos,
-          }}
-          onImportBenchmarkAnalytics={() => void handleImportStudioAnalytics("benchmark")}
-          onImportCompareAnalytics={() => void handleImportStudioAnalytics("compare")}
-          onImportMainAnalytics={() => void handleImportStudioAnalytics("main")}
-          onOpenChannelLab={() => handleSelectView("channel")}
-          onOpenVideoBrief={(video) => {
-            setActiveView("studio");
-            setWorkspaceMode("single");
-            setVideoTitle(video.title);
-            setVideoUrl(video.url);
-            showStatus("Video Loaded", "success");
-          }}
-        />
+        <div className="vi-shell">
+          <aside className="vi-section-panel cipher-section-panel">
+            <div className="cipher-section-header">
+              <div className="cipher-section-eyebrow">Studio Analytics</div>
+              <div className="cipher-section-channel">Performance Data</div>
+            </div>
+            <div className="cipher-section-list">
+              {(["overview", "main", "compare", "benchmark"] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={`cipher-section-item ${analyticsSection === s ? "is-active" : ""}`}
+                  onClick={() => setAnalyticsSection(s)}
+                >
+                  <span>{s.charAt(0).toUpperCase() + s.slice(1)}</span>
+                </button>
+              ))}
+            </div>
+          </aside>
+          <div className="vi-main">
+            <StudioAnalyticsPage
+              benchmark={{
+                coverageLabel: benchmarkStudioCoverage,
+                importSummary: benchmarkStudioImport,
+                videos: benchmarkChannelVideos,
+              }}
+              busy={busy}
+              canImportAnalytics={canImportAnalytics}
+              compare={{
+                coverageLabel: compareStudioCoverage,
+                importSummary: compareStudioImport,
+                videos: compareChannelVideos,
+              }}
+              main={{
+                coverageLabel: mainStudioCoverage,
+                importSummary: mainStudioImport,
+                videos: channelVideos,
+              }}
+              onImportBenchmarkAnalytics={() => void handleImportStudioAnalytics("benchmark")}
+              onImportCompareAnalytics={() => void handleImportStudioAnalytics("compare")}
+              onImportMainAnalytics={() => void handleImportStudioAnalytics("main")}
+              onOpenChannelLab={() => handleSelectView("channel")}
+              onOpenVideoBrief={(video) => {
+                setActiveView("studio");
+                setWorkspaceMode("single");
+                setVideoTitle(video.title);
+                setVideoUrl(video.url);
+                showStatus("Video Loaded", "success");
+              }}
+            />
+          </div>
+        </div>
       );
     }
     if (activeView === "projects") {
       return (
-        <ProjectsPage
-          formatCreatedAt={formatCreatedAt}
-          historySearch={historySearch}
-          items={libraryProjects}
-          onDeleteProject={handleDeleteProject}
-          onHistorySearchChange={setHistorySearch}
-          onLoadProject={handleLoadProject}
-          onRenameProject={handleRenameProject}
-          visibleCount={libraryProjects.length}
-        />
+        <div className="vi-shell">
+          <aside className="vi-section-panel cipher-section-panel">
+            <div className="cipher-section-header">
+              <div className="cipher-section-eyebrow">Projects</div>
+              <div className="cipher-section-channel">Saved Work</div>
+            </div>
+            <div className="cipher-section-list">
+              {(["all", "workspaces", "briefs", "reports", "presets"] as const).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={`cipher-section-item ${projectsSection === s ? "is-active" : ""}`}
+                  onClick={() => setProjectsSection(s)}
+                >
+                  <span>{s.charAt(0).toUpperCase() + s.slice(1)}</span>
+                </button>
+              ))}
+            </div>
+          </aside>
+          <div className="vi-main">
+            <ProjectsPage
+              formatCreatedAt={formatCreatedAt}
+              historySearch={historySearch}
+              items={libraryProjects}
+              onDeleteProject={handleDeleteProject}
+              onHistorySearchChange={setHistorySearch}
+              onLoadProject={handleLoadProject}
+              onRenameProject={handleRenameProject}
+              visibleCount={libraryProjects.length}
+            />
+          </div>
+        </div>
       );
     }
     return (
@@ -3470,56 +3595,49 @@ export default function App() {
         <div className={`cipher-layout ${showAnalyzePanel ? "is-analyze" : "is-full"}`}>
           <aside className="cipher-icon-sidebar">
             <div className="cipher-sidebar-logo" aria-label="Cipher Lens">
-              <div className="cipher-sidebar-logo-mark">CL</div>
+              <img className="cipher-sidebar-logo-image" src="/brand/cipher-mark.svg" alt="Cipher Lens" />
             </div>
             <div className="cipher-nav-group">
               <button type="button" className={`cipher-icon-button ${isHomeNavActive ? "is-active" : ""}`} onClick={() => handleSelectView("home")} title="Home">
                 {renderLayoutIcon("home")}
+              </button>
+              <button type="button" className={`cipher-icon-button ${isStudioNavActive ? "is-active" : ""}`} onClick={() => handleSelectView("studio")} title="Video Intel">
+                {renderLayoutIcon("overview")}
+              </button>
+              <button type="button" className={`cipher-icon-button ${isChannelNavActive ? "is-active" : ""}`} onClick={() => handleSelectView("channel")} title="Channel Clone">
+                {renderLayoutIcon("clone")}
+              </button>
+              <button type="button" className={`cipher-icon-button ${isCompareNavActive ? "is-active" : ""}`} onClick={() => handleSelectView("compare")} title="Compare">
+                {renderLayoutIcon("compare")}
+              </button>
+              <button type="button" className={`cipher-icon-button ${isAnalyticsNavActive ? "is-active" : ""}`} onClick={() => handleSelectView("analytics")} title="Studio Analytics">
+                {renderLayoutIcon("saved")}
+              </button>
+              <button type="button" className={`cipher-icon-button ${isProjectsNavActive ? "is-active" : ""}`} onClick={() => handleSelectView("projects")} title="Projects">
+                {renderLayoutIcon("library")}
               </button>
               <button type="button" className={`cipher-icon-button ${isLibraryNavActive ? "is-active" : ""}`} onClick={() => handleSelectView("library")} title="Library">
                 {renderLayoutIcon("library")}
               </button>
             </div>
             <div className="cipher-sidebar-spacer" />
-            <div className="cipher-nav-group">
-              <button type="button" className={`cipher-icon-button ${isExportNavActive ? "is-active" : ""}`} onClick={() => handleSelectView("exports")} title="Export">
-                {renderLayoutIcon("export")}
-              </button>
-              <button type="button" className={`cipher-icon-button ${isSettingsNavActive ? "is-active" : ""}`} onClick={() => handleSelectView("settings")} title="Settings">
-                {renderLayoutIcon("settings")}
-              </button>
-            </div>
-            <div className="cipher-pro-badge">PRO</div>
           </aside>
-
-          {showAnalyzePanel ? (
-            <aside className="cipher-section-panel">
-              <div className="cipher-section-header">
-                <div className="cipher-section-eyebrow">Channel Clone</div>
-                <div className="cipher-section-channel">{currentChannelLabel}</div>
-                <div className="cipher-chip-row">
-                  <span className="cipher-chip">{currentVideoCount} videos</span>
-                  {currentTranscriptCoverage !== null ? <span className="cipher-chip">{currentTranscriptCoverage}% transcript</span> : null}
-                </div>
-              </div>
-              <div className="cipher-section-list">
-                {ANALYZE_SECTIONS.map((section) => (
-                  <button key={section.id} type="button" className={`cipher-section-item ${analyzeSection === section.id ? "is-active" : ""}`} onClick={() => setAnalyzeSection(section.id)}>
-                    <span className="cipher-section-icon">{renderLayoutIcon(section.id)}</span>
-                    <span>{section.label}</span>
-                  </button>
-                ))}
-              </div>
-            </aside>
-          ) : null}
 
           <section className="cipher-main-stage">
             <header className="cipher-topbar">
                 <div className="cipher-topbar-title">
                   {activeView === "home" ? (
-                  <span className="cipher-breadcrumb-current">Cipher Command Center</span>
+                  <div className="cipher-logo" style={{ fontSize: "24px" }}>
+                    <span className="word">Cipher</span>
+                    <span className="tm">™</span>
+                    <span className="cipher-logo-tool">Lens</span>
+                  </div>
                   ) : (
                   <>
+                    <div className="cipher-logo" style={{ fontSize: "24px" }}>
+                      <span className="word">Cipher</span>
+                      <span className="tm">™</span>
+                    </div>
                     <button type="button" className="cipher-breadcrumb-link" onClick={() => handleSelectView("home")}>Home</button>
                     <span className="cipher-breadcrumb-separator">&gt;</span>
                     <span className="cipher-breadcrumb-current">{breadcrumbToolName}</span>
@@ -3527,8 +3645,11 @@ export default function App() {
                 )}
               </div>
               <div className="cipher-topbar-actions">
-                <button type="button" className="cipher-action-button" onClick={() => void handleTopbarExport()} disabled={!canExportCurrentView}>Export</button>
-                <button type="button" className="cipher-action-button is-primary" onClick={() => void handleTopbarSaveReport()} disabled={!canSaveCurrentView}>Save Report</button>
+                <button type="button" className="cipher-icon-button" onClick={handleToggleTheme} title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
+                  {theme === "dark"
+                    ? <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="8" cy="8" r="2.5" /><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.2 3.2l1 1M11.8 11.8l1 1M3.2 12.8l1-1M11.8 4.2l1-1" strokeLinecap="round" /></svg>
+                    : <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M10.8 2.2a5.8 5.8 0 1 0 3 10.5A6.5 6.5 0 1 1 10.8 2.2z" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                </button>
               </div>
             </header>
 
